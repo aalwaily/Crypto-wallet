@@ -10,7 +10,14 @@ import {
   TextInput,
   formatError,
 } from '../components/ui';
-import { IconAlertTriangle, IconEye, IconEyeOff, IconLock } from '../components/icons';
+import {
+  IconAlertTriangle,
+  IconEye,
+  IconEyeOff,
+  IconLock,
+  IconMoon,
+  IconSun,
+} from '../components/icons';
 import { useWallet } from '../state/WalletContext';
 import { unlockVault } from '../../wallet/vault';
 import { BTC_NETWORKS, MAINNET_ENABLED } from '../../config';
@@ -110,6 +117,21 @@ export function Settings() {
 
       <Card>
         <div className="stack">
+          <div className="row">
+            <span style={{ fontSize: 13.5, fontWeight: 600 }}>Appearance</span>
+            <Button
+              variant="secondary"
+              small
+              aria-label={`Switch to ${settings.theme === 'dark' ? 'light' : 'dark'} mode`}
+              onClick={() =>
+                void onChange({ theme: settings.theme === 'dark' ? 'light' : 'dark' })
+              }
+            >
+              {settings.theme === 'dark' ? <IconMoon size={15} /> : <IconSun size={15} />}
+              {settings.theme === 'dark' ? 'Dark' : 'Light'}
+            </Button>
+          </div>
+          <hr className="divider" />
           <Field label="Bitcoin network">
             <Select
               value={settings.btcNetwork}

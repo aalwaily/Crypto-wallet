@@ -88,6 +88,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setStatus('locked');
   }, []);
 
+  // Reflect the chosen theme on the document root so the CSS tokens switch.
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', settings.theme);
+  }, [settings.theme]);
+
   // Initial load: settings, vault existence, and any live session.
   useEffect(() => {
     void (async () => {

@@ -47,6 +47,35 @@
   color-scheme: dark;
 }
 
+/* Light theme — overrides only the color tokens; shape/motion/typography stay shared. */
+:root[data-theme='light'] {
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --surface-2: #f0f2f5;
+  --surface-3: #e4e8ee;
+  --border: rgba(0, 0, 0, 0.1);
+  --border-strong: rgba(0, 0, 0, 0.18);
+
+  --text: #14161c;
+  --text-secondary: #545c6a;
+  --muted: #838b98;
+
+  --primary: #e2900f;
+  --primary-hover: #cc8009;
+  --on-primary: #ffffff;
+  --primary-dim: rgba(226, 144, 15, 0.12);
+  --btc: #e07c0a;
+  --usdt: #1f8f6c;
+  --danger: #d13d4a;
+  --danger-surface: rgba(209, 61, 74, 0.1);
+  --success: #1f9d68;
+  --success-surface: rgba(31, 157, 104, 0.12);
+  --warn: #b7791a;
+  --warn-surface: rgba(183, 121, 26, 0.12);
+
+  color-scheme: light;
+}
+
 * {
   box-sizing: border-box;
 }

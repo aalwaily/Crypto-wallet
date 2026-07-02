@@ -15,6 +15,7 @@ export const settingsSchema = z.object({
   /** Index into BTC_NETWORKS[network].apiProviders, or a custom Esplora base URL. */
   btcApiBaseUrl: z.string().url().optional(),
   autoLockMinutes: z.number().int().min(1).max(120).default(DEFAULT_AUTO_LOCK_MINUTES),
+  theme: z.enum(['dark', 'light']).default('dark'),
 });
 
 export type Settings = z.infer<typeof settingsSchema>;
