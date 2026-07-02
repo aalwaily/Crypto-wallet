@@ -62,7 +62,8 @@ Rebuild and click the reload icon on the extension card after any code change.
 Open **Settings** (⚙ on the dashboard):
 
 - **Bitcoin API provider** — mempool.space or Blockstream (same Esplora API; pick whichever is reliable for you).
-- **Tron network** — Nile or Shasta testnet. USDT contract addresses per network live in `src/config.ts` (`TRON_NETWORKS`). Verify the testnet USDT contract on tronscan before relying on it — test contracts occasionally change.
+- **Tron network** — Nile or Shasta testnet. Token contract addresses per network live in `src/config.ts` (`TRON_NETWORKS` / `TRON_MAINNET_TOKENS`). Verify contracts on tronscan before relying on them — test contracts occasionally change.
+- **TronGrid rate limits** — the free public TronGrid endpoint is rate-limited and can return HTTP 429 if you refresh often. Balances are fetched in a single request to minimize this, but for heavy use get a free API key at <https://www.trongrid.io> and paste it into `TRONGRID_API_KEY` in `src/config.ts`, then rebuild.
 - **Auto-lock** — minutes of inactivity before the session is wiped (default 5).
 
 - **Mainnet** — selectable per chain in Settings. Switching to mainnet requires checking a risk acknowledgement. Bitcoin mainnet uses a different derivation path (`m/84'/0'/0'/0/0`), so your mainnet BTC address differs from your testnet one; the Tron address is the same on all Tron networks. For real funds, create a **fresh wallet** whose seed has never been displayed during testing, and verify receiving with a small amount before anything larger.

@@ -96,6 +96,13 @@ export type TronNetworkId = keyof typeof TRON_NETWORKS;
 
 export const TRON_DERIVATION_PATH = "m/44'/195'/0'/0/0";
 
+/**
+ * Optional TronGrid API key. The free public endpoint is heavily rate-limited
+ * (HTTP 429). Get a free key at https://www.trongrid.io and paste it here to
+ * raise the limit. Leave empty to use the anonymous public endpoint.
+ */
+export const TRONGRID_API_KEY = '';
+
 /** Minimal TRC20 ABI — enough for balanceOf/transfer without an on-chain ABI fetch. */
 export const TRC20_ABI = [
   {

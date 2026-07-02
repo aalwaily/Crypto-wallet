@@ -3,7 +3,7 @@ import * as ecc from '@bitcoinerlab/secp256k1';
 import { TronWeb } from 'tronweb';
 import { mnemonicToSeed } from './mnemonic';
 import { getTronNetworkConfig } from './networks';
-import { TRON_DERIVATION_PATH } from '../config';
+import { TRON_DERIVATION_PATH, TRONGRID_API_KEY } from '../config';
 import type { TronNetworkId } from '../config';
 
 const bip32 = BIP32Factory(ecc);
@@ -32,7 +32,12 @@ export async function deriveTronAccount(mnemonic: string): Promise<TronAccount> 
   return { address, derivationPath: TRON_DERIVATION_PATH };
 }
 
+/** Shared header for authenticated TronGrid requests (empty when no key set). */
+export function tronGridHeaders(): Record<string, string> {
+  return TRONGRID_API_KEY ? { 'TRON-PRO-API-KEY': TRONGRID_API_KEY } : {};
+}
+
 export function createTronWeb(networkId: TronNetworkId, privateKey?: string): TronWeb {
   const config = getTronNetworkConfig(networkId);
-  return new TronWeb({ fullHost: config.fullHost, privateKey });
+  return new TronWeb({ fullHost: config.fullHost, headers: tronGridHeaders(), privateKey });
 }

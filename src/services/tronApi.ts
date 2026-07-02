@@ -4,7 +4,7 @@
  * contract + decimals (see TRON_NETWORKS[*].tokens in config.ts).
  */
 import { z } from 'zod';
-import { createTronWeb, deriveTronPrivateKey } from '../wallet/tron';
+import { createTronWeb, deriveTronPrivateKey, tronGridHeaders } from '../wallet/tron';
 import { getTronNetworkConfig } from '../wallet/networks';
 import {
   MIN_TRX_FOR_FEES_SUN,
@@ -42,39 +42,63 @@ export interface TronAssets {
   tokens: TokenBalance[];
 }
 
+const accountResponseSchema = z.object({
+  data: z
+    .array(
+      z.object({
+        balance: z.number().optional(),
+        // Each entry maps one contract address → balance string.
+        trc20: z.array(z.record(z.string(), z.string())).optional(),
+      }),
+    )
+    .default([]),
+});
+
 /**
- * Fetches TRX plus every configured TRC20 balance for the network in parallel.
- * A single token's failure yields a 0 balance rather than failing the whole set.
+ * Fetches TRX and every configured TRC20 balance in a SINGLE request via
+ * TronGrid's account endpoint. This avoids the per-token contract calls that
+ * triggered HTTP 429 rate limiting on the public endpoint. An unactivated
+ * account (no on-chain history) returns empty data → all-zero balances.
  */
 export async function fetchTronAssets(
   networkId: TronNetworkId,
   address: string,
 ): Promise<TronAssets> {
-  const tronWeb = createTronWeb(networkId);
-  tronWeb.setAddress(address);
-  const { tokens } = getTronNetworkConfig(networkId);
+  const config = getTronNetworkConfig(networkId);
+  const { tokens } = config;
 
-  let trxSun: number;
+  let response: Response;
   try {
-    trxSun = await tronWeb.trx.getBalance(address);
-  } catch (error) {
+    response = await fetch(`${config.fullHost}/v1/accounts/${address}`, {
+      headers: tronGridHeaders(),
+    });
+  } catch {
+    throw new TronApiError('Tron API is unreachable. Check your connection.');
+  }
+  if (response.status === 429) {
     throw new TronApiError(
-      `Failed to fetch TRX balance: ${error instanceof Error ? error.message : String(error)}`,
+      'Tron API rate limit reached (429). Wait a few seconds and refresh, or add a free ' +
+        'TronGrid API key in src/config.ts (see README).',
     );
   }
+  if (!response.ok) {
+    throw new TronApiError(`Failed to fetch Tron balances (${response.status}).`);
+  }
 
-  const balances = await Promise.all(
-    tokens.map(async (token): Promise<TokenBalance> => {
-      try {
-        // Minimal ABI avoids a per-token on-chain ABI fetch, keeping this fast.
-        const contract = tronWeb.contract(TRC20_ABI as unknown as never[], token.contract);
-        const raw = await contract.balanceOf(address).call();
-        return { token, units: BigInt(raw.toString()) };
-      } catch {
-        return { token, units: 0n };
-      }
-    }),
-  );
+  const account = accountResponseSchema.parse(await response.json()).data[0];
+  const trxSun = account?.balance ?? 0;
+
+  const balanceByContract = new Map<string, bigint>();
+  for (const entry of account?.trc20 ?? []) {
+    for (const [contract, value] of Object.entries(entry)) {
+      balanceByContract.set(contract, BigInt(value));
+    }
+  }
+
+  const balances: TokenBalance[] = tokens.map((token) => ({
+    token,
+    units: balanceByContract.get(token.contract) ?? 0n,
+  }));
 
   return { trxSun, tokens: balances };
 }
@@ -178,9 +202,12 @@ export async function fetchTrc20History(
   const url = `${config.fullHost}/v1/accounts/${address}/transactions/trc20?limit=${limit}`;
   let response: Response;
   try {
-    response = await fetch(url);
+    response = await fetch(url, { headers: tronGridHeaders() });
   } catch {
     throw new TronApiError('Tron API is unreachable. Check your connection.');
+  }
+  if (response.status === 429) {
+    throw new TronApiError('Tron API rate limit reached (429). Wait a few seconds and retry.');
   }
   if (!response.ok) {
     throw new TronApiError(`Tron API error (${response.status}).`);

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fetchBtcHistory } from '../services/bitcoinApi';
-import { fetchTrc20History } from '../services/tronApi';
+import { fetchTronAssets, fetchTrc20History } from '../services/tronApi';
 
 const ADDRESS = 'tb1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl';
 const TRON_ADDRESS = 'TUEZSdKsoDHQMeZwihtdoBiN46zxhGWYdH';
@@ -65,6 +65,38 @@ describe('fetchBtcHistory (mocked)', () => {
     ]);
     const history = await fetchBtcHistory('https://x/api', ADDRESS);
     expect(history[0]!.deltaSats).toBe(100_000);
+  });
+});
+
+describe('fetchTronAssets (mocked)', () => {
+  it('reads TRX + all token balances from one account response', async () => {
+    // USDT contract on Nile (per config) → 5 USDT; other tokens default to 0.
+    mockFetchOnce({
+      data: [
+        {
+          balance: 12_000_000, // 12 TRX in SUN
+          trc20: [{ TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf: '5000000' }],
+        },
+      ],
+    });
+    const assets = await fetchTronAssets('nile', TRON_ADDRESS);
+    expect(assets.trxSun).toBe(12_000_000);
+    const usdt = assets.tokens.find((t) => t.token.symbol === 'USDT');
+    expect(usdt!.units).toBe(5_000_000n);
+    // Single request, not one-per-token.
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns all-zero balances for an unactivated account (empty data)', async () => {
+    mockFetchOnce({ data: [] });
+    const assets = await fetchTronAssets('nile', TRON_ADDRESS);
+    expect(assets.trxSun).toBe(0);
+    expect(assets.tokens.every((t) => t.units === 0n)).toBe(true);
+  });
+
+  it('surfaces a 429 as a rate-limit error', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 429 })));
+    await expect(fetchTronAssets('nile', TRON_ADDRESS)).rejects.toThrow(/rate limit/i);
   });
 });
 
