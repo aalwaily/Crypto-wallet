@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fetchBtcHistory } from '../services/bitcoinApi';
-import { fetchUsdtHistory } from '../services/tronApi';
+import { fetchTrc20History } from '../services/tronApi';
 
 const ADDRESS = 'tb1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl';
 const TRON_ADDRESS = 'TUEZSdKsoDHQMeZwihtdoBiN46zxhGWYdH';
@@ -68,8 +68,8 @@ describe('fetchBtcHistory (mocked)', () => {
   });
 });
 
-describe('fetchUsdtHistory (mocked)', () => {
-  it('classifies direction and parses value as bigint', async () => {
+describe('fetchTrc20History (mocked)', () => {
+  it('classifies direction, parses value, and reads token_info per transfer', async () => {
     mockFetchOnce({
       data: [
         {
@@ -78,31 +78,51 @@ describe('fetchUsdtHistory (mocked)', () => {
           to: TRON_ADDRESS,
           value: '5000000',
           block_timestamp: 1_750_000_000_000,
+          token_info: { symbol: 'USDT', decimals: 6 },
         },
         {
           transaction_id: 'tx-out',
           from: TRON_ADDRESS,
           to: 'TRecipientAddress',
-          value: '1500000',
+          value: '1500000000000000000',
           block_timestamp: 1_750_000_100_000,
+          token_info: { symbol: 'JST', decimals: 18 },
         },
       ],
     });
-    const history = await fetchUsdtHistory('nile', TRON_ADDRESS);
+    const history = await fetchTrc20History('nile', TRON_ADDRESS);
     expect(history).toHaveLength(2);
     expect(history[0]!.direction).toBe('in');
     expect(history[0]!.amountUnits).toBe(5_000_000n);
-    expect(history[0]!.counterparty).toBe('TSenderAddress');
+    expect(history[0]!.symbol).toBe('USDT');
+    expect(history[0]!.decimals).toBe(6);
     expect(history[1]!.direction).toBe('out');
-    expect(history[1]!.counterparty).toBe('TRecipientAddress');
+    expect(history[1]!.symbol).toBe('JST');
+    expect(history[1]!.decimals).toBe(18);
   });
 
-  it('requests the configured USDT contract', async () => {
+  it('falls back to sane defaults when token_info is missing', async () => {
+    mockFetchOnce({
+      data: [
+        {
+          transaction_id: 'tx',
+          from: 'TSenderAddress',
+          to: TRON_ADDRESS,
+          value: '1',
+          block_timestamp: 1_750_000_000_000,
+        },
+      ],
+    });
+    const [entry] = await fetchTrc20History('nile', TRON_ADDRESS);
+    expect(entry!.symbol).toBe('TRC20');
+    expect(entry!.decimals).toBe(6);
+  });
+
+  it('requests all TRC20 transfers for the address', async () => {
     mockFetchOnce({ data: [] });
-    await fetchUsdtHistory('nile', TRON_ADDRESS);
+    await fetchTrc20History('nile', TRON_ADDRESS);
     const url = (fetch as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
     expect(url).toContain('nile.trongrid.io');
-    expect(url).toContain('contract_address=');
     expect(url).toContain(`/v1/accounts/${TRON_ADDRESS}/transactions/trc20`);
   });
 });

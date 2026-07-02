@@ -9,7 +9,7 @@ import { Unlock } from '../screens/Unlock';
 import { Dashboard } from '../screens/Dashboard';
 import { History } from '../screens/History';
 import { SendBitcoin } from '../screens/SendBitcoin';
-import { SendUsdt } from '../screens/SendUsdt';
+import { SendToken } from '../screens/SendToken';
 import { Settings } from '../screens/Settings';
 import type { ReactNode } from 'react';
 
@@ -85,10 +85,10 @@ export function AppRoutes() {
         }
       />
       <Route
-        path="/send/usdt"
+        path="/send/trc20/:symbol"
         element={
           <RequireUnlocked>
-            <SendUsdt />
+            <SendToken />
           </RequireUnlocked>
         }
       />

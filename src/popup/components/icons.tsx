@@ -158,6 +158,12 @@ export const IconInbox = (p: IconProps) => (
   </svg>
 );
 
+export const IconChevronRight = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="m9 18 6-6-6-6" />
+  </svg>
+);
+
 export const IconSun = (p: IconProps) => (
   <svg {...base(p)}>
     <circle cx="12" cy="12" r="4" />

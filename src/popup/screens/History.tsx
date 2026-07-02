@@ -12,16 +12,16 @@ import {
 import { IconReceive, IconSend } from '../components/icons';
 import { useWallet } from '../state/WalletContext';
 import { fetchBtcHistory, type BtcTxSummary } from '../../services/bitcoinApi';
-import { fetchUsdtHistory, type UsdtTransfer } from '../../services/tronApi';
+import { fetchTrc20History, type Trc20Transfer } from '../../services/tronApi';
 import { getBtcApiBaseUrl, getBtcNetworkConfig, getTronNetworkConfig } from '../../wallet/networks';
 import { formatUnits, satsToBtc } from '../../wallet/validators';
-import { USDT_DECIMALS } from '../../config';
 
-type Filter = 'all' | 'btc' | 'usdt';
+type Filter = 'all' | 'btc' | 'tron';
 
 interface HistoryEntry {
   key: string;
-  asset: 'BTC' | 'USDT';
+  chain: 'btc' | 'tron';
+  asset: string;
   direction: 'in' | 'out';
   amountLabel: string;
   subLabel: string;
@@ -34,6 +34,7 @@ function btcToEntry(tx: BtcTxSummary, explorerUrl: (txid: string) => string): Hi
   const incoming = tx.deltaSats >= 0;
   return {
     key: `btc-${tx.txid}`,
+    chain: 'btc',
     asset: 'BTC',
     direction: incoming ? 'in' : 'out',
     amountLabel: `${incoming ? '+' : '−'}${satsToBtc(Math.abs(tx.deltaSats))}`,
@@ -44,12 +45,13 @@ function btcToEntry(tx: BtcTxSummary, explorerUrl: (txid: string) => string): Hi
   };
 }
 
-function usdtToEntry(t: UsdtTransfer, explorerUrl: (txid: string) => string): HistoryEntry {
+function trc20ToEntry(t: Trc20Transfer, explorerUrl: (txid: string) => string): HistoryEntry {
   return {
-    key: `usdt-${t.txid}`,
-    asset: 'USDT',
+    key: `trc20-${t.txid}-${t.symbol}`,
+    chain: 'tron',
+    asset: t.symbol,
     direction: t.direction,
-    amountLabel: `${t.direction === 'in' ? '+' : '−'}${formatUnits(t.amountUnits, USDT_DECIMALS)}`,
+    amountLabel: `${t.direction === 'in' ? '+' : '−'}${formatUnits(t.amountUnits, t.decimals)}`,
     subLabel: `${t.direction === 'in' ? 'From' : 'To'} ${shortAddress(t.counterparty)}`,
     pending: false,
     timestampMs: t.timestampMs,
@@ -71,9 +73,9 @@ export function History() {
     const tronExplorer = getTronNetworkConfig(settings.tronNetwork).explorerTxUrl;
     Promise.allSettled([
       fetchBtcHistory(getBtcApiBaseUrl(settings), accounts.btc.address),
-      fetchUsdtHistory(settings.tronNetwork, accounts.tron.address),
-    ]).then(([btcResult, usdtResult]) => {
-      if (btcResult.status === 'rejected' && usdtResult.status === 'rejected') {
+      fetchTrc20History(settings.tronNetwork, accounts.tron.address),
+    ]).then(([btcResult, tronResult]) => {
+      if (btcResult.status === 'rejected' && tronResult.status === 'rejected') {
         setError(formatError(btcResult.reason));
         return;
       }
@@ -81,15 +83,15 @@ export function History() {
         ...(btcResult.status === 'fulfilled'
           ? btcResult.value.map((tx) => btcToEntry(tx, btcExplorer))
           : []),
-        ...(usdtResult.status === 'fulfilled'
-          ? usdtResult.value.map((t) => usdtToEntry(t, tronExplorer))
+        ...(tronResult.status === 'fulfilled'
+          ? tronResult.value.map((t) => trc20ToEntry(t, tronExplorer))
           : []),
       ];
       // Pending first, then newest first.
       list.sort((a, b) => Number(b.pending) - Number(a.pending) || b.timestampMs - a.timestampMs);
       setEntries(list);
       if (btcResult.status === 'rejected') setError(`Bitcoin history: ${formatError(btcResult.reason)}`);
-      if (usdtResult.status === 'rejected') setError(`USDT history: ${formatError(usdtResult.reason)}`);
+      if (tronResult.status === 'rejected') setError(`Tron history: ${formatError(tronResult.reason)}`);
     });
   }, [accounts, settings]);
 
@@ -97,16 +99,14 @@ export function History() {
 
   if (!accounts) return null;
 
-  const visible = entries?.filter(
-    (e) => filter === 'all' || e.asset.toLowerCase() === filter,
-  );
+  const visible = entries?.filter((e) => filter === 'all' || e.chain === filter);
 
   return (
     <Screen title="History" withTabBar>
       <div className="segmented" role="group" aria-label="Filter transactions">
-        {(['all', 'btc', 'usdt'] as const).map((f) => (
+        {(['all', 'btc', 'tron'] as const).map((f) => (
           <button key={f} aria-pressed={filter === f} onClick={() => setFilter(f)}>
-            {f === 'all' ? 'All' : f.toUpperCase()}
+            {f === 'all' ? 'All' : f === 'btc' ? 'BTC' : 'Tron'}
           </button>
         ))}
       </div>

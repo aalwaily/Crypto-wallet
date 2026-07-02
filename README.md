@@ -13,8 +13,9 @@ A non-custodial Chrome extension wallet for **Bitcoin (testnet)** and **USDT-TRC
 - Bitcoin native SegWit (bech32) address at `m/84'/1'/0'/0/0` (BIP84, testnet)
 - Tron address at `m/44'/195'/0'/0/0` from the same seed
 - BTC send with UTXO coin selection, live fee estimates, Max button, and confirmation screen
-- USDT-TRC20 send via TronWeb with TRX fee-balance check and Max button
-- Unified transaction history (BTC + USDT) with explorer links and pending indicators
+- Multi-token TRC20 support: the 10 most-used Tron tokens (USDT, USDC, USDD, TUSD, JST, WIN, SUN, BTT, NFT, USDJ) on mainnet, all at your single Tron address
+- Any-token send via TronWeb with TRX fee-balance check and Max button
+- Unified transaction history (BTC + all TRC20 tokens) with explorer links and pending indicators
 - Password unlock, auto-lock after inactivity (enforced by the background service worker), manual lock
 - Password-gated seed phrase reveal in Settings
 - Minimal dark fintech UI: bottom tab navigation, QR receive codes, skeleton loading, SVG icon set
@@ -92,6 +93,7 @@ Covers mnemonic generation/validation, AES-GCM encrypt/decrypt (incl. tampering)
 - Seed backup has no verification quiz; you confirm with a checkbox only.
 - JavaScript cannot reliably zero memory; decrypted secrets live in GC-managed memory while unlocked.
 - `ecpair` is used for signing; the ECC backend is `@bitcoinerlab/secp256k1` (pure JS, noble-based) rather than `tiny-secp256k1`, avoiding a WASM CSP exemption in MV3. Swap in `tiny-secp256k1` if you prefer — the interface is identical.
+- **Token contract addresses** for the 10 mainnet tokens in `src/config.ts` (`TRON_MAINNET_TOKENS`) are provided for convenience and **must be verified on [tronscan.org](https://tronscan.org)** before real-fund use — scam tokens imitate popular names; only the contract address is authoritative. Edit that list to add/remove tokens.
 - Testnet USDT contracts are community-deployed and may differ from what your faucet dispenses; adjust `src/config.ts` if balances don't appear.
 - Fee estimation on Bitcoin testnet is often flat (1 sat/vB); the tiers matter more on mainnet.
 - RBF (replace-by-fee) and custom change addresses are not implemented.

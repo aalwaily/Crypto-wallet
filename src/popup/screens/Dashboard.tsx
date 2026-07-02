@@ -13,40 +13,49 @@ import {
 } from '../components/ui';
 import {
   IconBtc,
+  IconChevronRight,
   IconLock,
   IconQr,
   IconRefresh,
   IconSend,
-  IconUsdt,
 } from '../components/icons';
 import { useWallet } from '../state/WalletContext';
 import { fetchBtcBalance, type BtcBalance } from '../../services/bitcoinApi';
-import { fetchTronBalances, formatTrx, formatUsdt, type TronBalances } from '../../services/tronApi';
+import { fetchTronAssets, formatTrx, type TronAssets } from '../../services/tronApi';
 import { getBtcApiBaseUrl, getBtcNetworkConfig, getTronNetworkConfig } from '../../wallet/networks';
-import { satsToBtc } from '../../wallet/validators';
+import { formatUnits, satsToBtc } from '../../wallet/validators';
 
 type Loadable<T> =
   | { state: 'loading' }
   | { state: 'error'; message: string }
   | { state: 'ok'; data: T };
 
+/** Circular colored badge showing a token ticker (no remote logos needed). */
+function TokenBadge({ symbol, color }: { symbol: string; color: string }) {
+  return (
+    <span className="token-badge" style={{ background: color }} aria-hidden>
+      {symbol}
+    </span>
+  );
+}
+
 export function Dashboard() {
   const navigate = useNavigate();
   const { accounts, settings, lock } = useWallet();
   const [btcBalance, setBtcBalance] = useState<Loadable<BtcBalance>>({ state: 'loading' });
-  const [tronBalances, setTronBalances] = useState<Loadable<TronBalances>>({ state: 'loading' });
+  const [tron, setTron] = useState<Loadable<TronAssets>>({ state: 'loading' });
   const [showQr, setShowQr] = useState<'btc' | 'tron' | null>(null);
 
   const refresh = useCallback(() => {
     if (!accounts) return;
     setBtcBalance({ state: 'loading' });
-    setTronBalances({ state: 'loading' });
+    setTron({ state: 'loading' });
     fetchBtcBalance(getBtcApiBaseUrl(settings), accounts.btc.address)
       .then((data) => setBtcBalance({ state: 'ok', data }))
       .catch((e) => setBtcBalance({ state: 'error', message: formatError(e) }));
-    fetchTronBalances(settings.tronNetwork, accounts.tron.address)
-      .then((data) => setTronBalances({ state: 'ok', data }))
-      .catch((e) => setTronBalances({ state: 'error', message: formatError(e) }));
+    fetchTronAssets(settings.tronNetwork, accounts.tron.address)
+      .then((data) => setTron({ state: 'ok', data }))
+      .catch((e) => setTron({ state: 'error', message: formatError(e) }));
   }, [accounts, settings]);
 
   useEffect(refresh, [refresh]);
@@ -71,6 +80,7 @@ export function Dashboard() {
         </>
       }
     >
+      {/* ---------- Bitcoin ---------- */}
       <Card>
         <div className="balance-card">
           <div className="row">
@@ -83,8 +93,7 @@ export function Dashboard() {
                   <Skeleton width={120} height={22} />
                 ) : (
                   <div className="balance-amount">
-                    {btcBalance.state === 'ok' ? satsToBtc(btcBalance.data.confirmedSats) : '—'}{' '}
-                    BTC
+                    {btcBalance.state === 'ok' ? satsToBtc(btcBalance.data.confirmedSats) : '—'} BTC
                   </div>
                 )}
                 {btcBalance.state === 'ok' && btcBalance.data.pendingSats !== 0 && (
@@ -120,52 +129,85 @@ export function Dashboard() {
         </div>
       </Card>
 
+      {/* ---------- Tron: one address, many tokens ---------- */}
       <Card>
-        <div className="balance-card">
+        <div className="stack">
           <div className="row">
-            <div className="asset-row">
-              <div className="asset-icon usdt">
-                <IconUsdt size={20} />
-              </div>
-              <div>
-                {tronBalances.state === 'loading' ? (
-                  <Skeleton width={120} height={22} />
-                ) : (
-                  <div className="balance-amount">
-                    {tronBalances.state === 'ok' ? formatUsdt(tronBalances.data.usdtUnits) : '—'}{' '}
-                    USDT
-                  </div>
-                )}
-                {tronBalances.state === 'ok' && (
-                  <div className="balance-sub">
-                    {formatTrx(tronBalances.data.trxSun)} TRX for fees
-                  </div>
-                )}
-              </div>
-            </div>
+            <span className="section-label">Tron</span>
             <NetworkBadge
               label={tronConfig.label.replace('Tron ', '').replace(' Testnet', '')}
               variant={settings.tronNetwork === 'mainnet' ? 'danger' : 'warn'}
             />
           </div>
-          {tronBalances.state === 'error' && <Alert kind="error">{tronBalances.message}</Alert>}
           <AddressDisplay address={accounts.tron.address} />
-          <div className="card-actions">
-            <Button small onClick={() => navigate('/send/usdt')}>
-              <IconSend size={15} />
-              Send
-            </Button>
-            <Button
-              variant="secondary"
-              small
-              aria-expanded={showQr === 'tron'}
-              onClick={() => setShowQr(showQr === 'tron' ? null : 'tron')}
-            >
-              <IconQr size={15} />
-              Receive
-            </Button>
-          </div>
+          <Button
+            variant="secondary"
+            small
+            aria-expanded={showQr === 'tron'}
+            onClick={() => setShowQr(showQr === 'tron' ? null : 'tron')}
+          >
+            <IconQr size={15} />
+            Receive to Tron address
+          </Button>
           {showQr === 'tron' && <QrCode value={accounts.tron.address} />}
+
+          {tron.state === 'error' && <Alert kind="error">{tron.message}</Alert>}
+
+          <hr className="divider" />
+
+          <div className="asset-list">
+            {/* TRX — needed for fees; not sendable here */}
+            <button className="asset-item" disabled aria-label="TRX balance for network fees">
+              <TokenBadge symbol="TRX" color="#eb0029" />
+              <span className="asset-meta">
+                <span className="asset-symbol" style={{ display: 'block' }}>
+                  TRX
+                </span>
+                <span className="asset-name">for network fees</span>
+              </span>
+              <span className="asset-balance">
+                {tron.state === 'loading' ? (
+                  <Skeleton width={60} height={16} />
+                ) : tron.state === 'ok' ? (
+                  formatTrx(tron.data.trxSun)
+                ) : (
+                  '—'
+                )}
+              </span>
+            </button>
+
+            {/* TRC20 tokens — tap a row to send that token */}
+            {tronConfig.tokens.map((token) => {
+              const balance =
+                tron.state === 'ok'
+                  ? tron.data.tokens.find((t) => t.token.symbol === token.symbol)
+                  : undefined;
+              return (
+                <button
+                  key={token.symbol}
+                  className="asset-item"
+                  onClick={() => navigate(`/send/trc20/${token.symbol}`)}
+                  aria-label={`Send ${token.symbol}`}
+                >
+                  <TokenBadge symbol={token.symbol} color={token.color} />
+                  <span className="asset-meta">
+                    <span className="asset-symbol" style={{ display: 'block' }}>
+                      {token.symbol}
+                    </span>
+                    <span className="asset-name">{token.name}</span>
+                  </span>
+                  <span className="asset-balance">
+                    {tron.state === 'loading' ? (
+                      <Skeleton width={60} height={16} />
+                    ) : (
+                      formatUnits(balance?.units ?? 0n, token.decimals)
+                    )}
+                    <IconChevronRight size={15} className="asset-chevron" />
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </Card>
 

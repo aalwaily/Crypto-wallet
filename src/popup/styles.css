@@ -491,6 +491,96 @@ p {
   flex: 1;
 }
 
+/* ---------- Multi-asset list ---------- */
+
+.section-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.asset-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.asset-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: 10px 6px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background var(--dur) var(--ease-out);
+}
+
+.asset-item:last-child {
+  border-bottom: none;
+}
+
+.asset-item:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.asset-item:disabled {
+  cursor: default;
+}
+
+.token-badge {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+}
+
+.asset-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.asset-symbol {
+  font-size: 13.5px;
+  font-weight: 650;
+}
+
+.asset-name {
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.asset-balance {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 13.5px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.asset-balance .asset-chevron {
+  color: var(--muted);
+  margin-left: 6px;
+}
+
 /* ---------- Address / QR ---------- */
 
 .address-box {

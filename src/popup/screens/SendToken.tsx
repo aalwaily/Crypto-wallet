@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import {
   Alert,
   Button,
@@ -13,10 +13,10 @@ import {
 } from '../components/ui';
 import { IconCheck, IconExternalLink } from '../components/icons';
 import { useWallet } from '../state/WalletContext';
-import { fetchTronBalances, sendUsdt } from '../../services/tronApi';
+import { fetchTrc20Balance, sendTrc20 } from '../../services/tronApi';
 import { getTronNetworkConfig } from '../../wallet/networks';
 import { isValidTronAddress, parseDecimalToUnits, formatUnits } from '../../wallet/validators';
-import { TRC20_FEE_LIMIT_SUN, USDT_DECIMALS } from '../../config';
+import { TRC20_FEE_LIMIT_SUN, type Trc20Token } from '../../config';
 
 type Step =
   | { name: 'form' }
@@ -24,8 +24,9 @@ type Step =
   | { name: 'sending'; to: string; amountUnits: bigint }
   | { name: 'done'; txid: string };
 
-export function SendUsdt() {
+export function SendToken() {
   const navigate = useNavigate();
+  const { symbol } = useParams<{ symbol: string }>();
   const { accounts, settings, mnemonic } = useWallet();
   const [step, setStep] = useState<Step>({ name: 'form' });
   const [to, setTo] = useState('');
@@ -33,25 +34,31 @@ export function SendUsdt() {
   const [maxBusy, setMaxBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!accounts || !mnemonic) return null;
-
   const tronConfig = getTronNetworkConfig(settings.tronNetwork);
+  const token: Trc20Token | undefined = tronConfig.tokens.find((t) => t.symbol === symbol);
+
+  if (!accounts || !mnemonic) return null;
+  // Unknown token symbol for the active network → back to the dashboard.
+  if (!token) return <Navigate to="/dashboard" replace />;
+
   const addressError = to && !isValidTronAddress(to) ? 'Invalid Tron address.' : undefined;
-  const amountUnits = parseDecimalToUnits(amount, USDT_DECIMALS);
+  const amountUnits = parseDecimalToUnits(amount, token.decimals);
   const amountError =
-    amount && amountUnits === null ? 'Enter a positive amount with up to 6 decimals.' : undefined;
+    amount && amountUnits === null
+      ? `Enter a positive amount with up to ${token.decimals} decimals.`
+      : undefined;
   const canReview = !!to && !addressError && amountUnits !== null;
 
   const onMax = async () => {
     setMaxBusy(true);
     setError(null);
     try {
-      const balances = await fetchTronBalances(settings.tronNetwork, accounts.tron.address);
-      if (balances.usdtUnits <= 0n) {
-        setError('No USDT balance to send.');
+      const units = await fetchTrc20Balance(settings.tronNetwork, accounts.tron.address, token);
+      if (units <= 0n) {
+        setError(`No ${token.symbol} balance to send.`);
         return;
       }
-      setAmount(formatUnits(balances.usdtUnits, USDT_DECIMALS));
+      setAmount(formatUnits(units, token.decimals));
     } catch (e) {
       setError(formatError(e));
     } finally {
@@ -64,9 +71,10 @@ export function SendUsdt() {
     setStep({ ...step, name: 'sending' });
     setError(null);
     try {
-      const txid = await sendUsdt({
+      const txid = await sendTrc20({
         mnemonic,
         networkId: settings.tronNetwork,
+        token,
         toAddress: step.to,
         amountUnits: step.amountUnits,
       });
@@ -79,11 +87,11 @@ export function SendUsdt() {
 
   if (step.name === 'done') {
     return (
-      <Screen title="Transfer sent">
+      <Screen title={`${token.symbol} sent`}>
         <div className="success-ring">
           <IconCheck size={26} />
         </div>
-        <Alert kind="success">Your USDT transfer has been broadcast.</Alert>
+        <Alert kind="success">Your {token.symbol} transfer has been broadcast.</Alert>
         <Card>
           <div className="stack" style={{ gap: 8 }}>
             <div className="row">
@@ -106,7 +114,7 @@ export function SendUsdt() {
 
   if (step.name === 'confirm' || step.name === 'sending') {
     return (
-      <Screen title="Confirm transfer">
+      <Screen title={`Confirm ${token.symbol} transfer`}>
         <Card>
           <div className="summary-list">
             <div className="row">
@@ -115,7 +123,9 @@ export function SendUsdt() {
             </div>
             <div className="row">
               <span className="label">Amount</span>
-              <span className="value">{formatUnits(step.amountUnits, USDT_DECIMALS)} USDT</span>
+              <span className="value">
+                {formatUnits(step.amountUnits, token.decimals)} {token.symbol}
+              </span>
             </div>
             <div className="row">
               <span className="label">Network</span>
@@ -148,7 +158,10 @@ export function SendUsdt() {
   }
 
   return (
-    <Screen title="Send USDT" back="/dashboard">
+    <Screen title={`Send ${token.symbol}`} back="/dashboard">
+      <p className="muted" style={{ fontSize: 12.5, marginTop: -4 }}>
+        {token.name} · {tronConfig.label}
+      </p>
       <Field label="Recipient address" error={addressError}>
         <TextInput
           value={to}
@@ -159,12 +172,12 @@ export function SendUsdt() {
           autoFocus
         />
       </Field>
-      <Field label="Amount (USDT)" error={amountError}>
+      <Field label={`Amount (${token.symbol})`} error={amountError}>
         <div className="input-wrap">
           <TextInput
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            placeholder="10.50"
+            placeholder="0.00"
             inputMode="decimal"
             aria-invalid={!!amountError}
             style={{ paddingRight: 64 }}

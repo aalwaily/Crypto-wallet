@@ -35,27 +35,60 @@ export const BTC_NETWORKS = {
 
 export type BtcNetworkId = keyof typeof BTC_NETWORKS;
 
+/**
+ * A TRC20 token. All TRC20 tokens live at the *same* Tron address; a token is
+ * fully described by its contract address and decimals.
+ *
+ * ⚠️ MAINNET CONTRACT ADDRESSES BELOW ARE PROVIDED FOR CONVENIENCE AND MUST BE
+ * VERIFIED ON https://tronscan.org BEFORE USE WITH REAL FUNDS. Scam tokens
+ * imitate popular names; only the contract address is authoritative.
+ */
+export interface Trc20Token {
+  symbol: string;
+  name: string;
+  contract: string;
+  decimals: number;
+  /** CSS color for the token's badge. */
+  color: string;
+}
+
+/** The 10 most widely used TRC20 tokens on Tron mainnet. Verify each on tronscan. */
+export const TRON_MAINNET_TOKENS: Trc20Token[] = [
+  { symbol: 'USDT', name: 'Tether USD', contract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t', decimals: 6, color: '#26a17b' },
+  { symbol: 'USDC', name: 'USD Coin', contract: 'TEkxiTehnzSmSe2XqrBj4w32RUN966rdz8', decimals: 6, color: '#2775ca' },
+  { symbol: 'USDD', name: 'Decentralized USD', contract: 'TPYmHEhy5n8TCEfYGqW2rPxsghSfzghPDn', decimals: 18, color: '#1c8a4d' },
+  { symbol: 'TUSD', name: 'TrueUSD', contract: 'TUpMhErZL2fhh4sVNULAbNKLokS4GjC1F4', decimals: 18, color: '#1f5eff' },
+  { symbol: 'JST', name: 'JUST', contract: 'TCFLL5dx5ZJdKnWuesXxi1VPwjLVmWZZy9', decimals: 18, color: '#7b3fe4' },
+  { symbol: 'WIN', name: 'WINkLink', contract: 'TLa2f6VPqDgRE67v1736s7bJ8Ray5wYjU7', decimals: 6, color: '#c99400' },
+  { symbol: 'SUN', name: 'SUN', contract: 'TSSMHYeV2uE9qYH95DqyoCuNCzEL1NvU3S', decimals: 18, color: '#e07b00' },
+  { symbol: 'BTT', name: 'BitTorrent', contract: 'TAFjULxiVgT4qWk6UZwjqwZXTSaGaqnVp4', decimals: 18, color: '#3a3f4b' },
+  { symbol: 'NFT', name: 'APENFT', contract: 'TFczxzPhnThNSqr5by8tvxsdCFRRz6cPNq', decimals: 6, color: '#e6007a' },
+  { symbol: 'USDJ', name: 'JUST Stablecoin', contract: 'TMwFHYXLJaRUPeW6421aqXL4ZEzPRFGkGT', decimals: 18, color: '#089b96' },
+];
+
 export const TRON_NETWORKS = {
   nile: {
     label: 'Tron Nile Testnet',
     fullHost: 'https://nile.trongrid.io',
-    // Well-known Nile test USDT contract. Verify on nile.tronscan.org before relying on it —
-    // testnet contracts occasionally change.
-    usdtContract: 'TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf',
     explorerTxUrl: (txid: string) => `https://nile.tronscan.org/#/transaction/${txid}`,
+    // Well-known Nile test USDT. Verify on nile.tronscan.org — testnet contracts change.
+    tokens: [
+      { symbol: 'USDT', name: 'Tether USD (test)', contract: 'TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf', decimals: 6, color: '#26a17b' },
+    ] as Trc20Token[],
   },
   shasta: {
     label: 'Tron Shasta Testnet',
     fullHost: 'https://api.shasta.trongrid.io',
-    // Commonly referenced Shasta test USDT. Verify on shasta.tronscan.org before relying on it.
-    usdtContract: 'TG3XXyExBkPp9nzdajDZsozEu4BkaSJozs',
     explorerTxUrl: (txid: string) => `https://shasta.tronscan.org/#/transaction/${txid}`,
+    tokens: [
+      { symbol: 'USDT', name: 'Tether USD (test)', contract: 'TG3XXyExBkPp9nzdajDZsozEu4BkaSJozs', decimals: 6, color: '#26a17b' },
+    ] as Trc20Token[],
   },
   mainnet: {
     label: 'Tron Mainnet',
     fullHost: 'https://api.trongrid.io',
-    usdtContract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
     explorerTxUrl: (txid: string) => `https://tronscan.org/#/transaction/${txid}`,
+    tokens: TRON_MAINNET_TOKENS,
   },
 } as const;
 
@@ -63,8 +96,28 @@ export type TronNetworkId = keyof typeof TRON_NETWORKS;
 
 export const TRON_DERIVATION_PATH = "m/44'/195'/0'/0/0";
 
-/** USDT uses 6 decimal places on Tron. */
-export const USDT_DECIMALS = 6;
+/** Minimal TRC20 ABI — enough for balanceOf/transfer without an on-chain ABI fetch. */
+export const TRC20_ABI = [
+  {
+    constant: true,
+    inputs: [{ name: 'who', type: 'address' }],
+    name: 'balanceOf',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    constant: false,
+    inputs: [
+      { name: '_to', type: 'address' },
+      { name: '_value', type: 'uint256' },
+    ],
+    name: 'transfer',
+    outputs: [{ name: '', type: 'bool' }],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+] as const;
 
 /** Upper bound (in SUN, 1 TRX = 1e6 SUN) a TRC20 transfer may burn for energy/bandwidth. */
 export const TRC20_FEE_LIMIT_SUN = 50_000_000; // 50 TRX

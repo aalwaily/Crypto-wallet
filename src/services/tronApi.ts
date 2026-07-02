@@ -1,15 +1,17 @@
 /**
- * Tron / USDT-TRC20 operations via TronWeb against the configured TronGrid
- * endpoint (Nile or Shasta testnet by default).
+ * Tron / TRC20 operations via TronWeb against the configured TronGrid endpoint.
+ * All TRC20 tokens share one Tron address; a token is identified by its
+ * contract + decimals (see TRON_NETWORKS[*].tokens in config.ts).
  */
 import { z } from 'zod';
 import { createTronWeb, deriveTronPrivateKey } from '../wallet/tron';
 import { getTronNetworkConfig } from '../wallet/networks';
 import {
   MIN_TRX_FOR_FEES_SUN,
+  TRC20_ABI,
   TRC20_FEE_LIMIT_SUN,
-  USDT_DECIMALS,
   type TronNetworkId,
+  type Trc20Token,
 } from '../config';
 import { formatUnits } from '../wallet/validators';
 
@@ -30,45 +32,86 @@ export class InsufficientTrxError extends Error {
   }
 }
 
-export interface TronBalances {
-  trxSun: number;
-  usdtUnits: bigint;
+export interface TokenBalance {
+  token: Trc20Token;
+  units: bigint;
 }
 
-export async function fetchTronBalances(
+export interface TronAssets {
+  trxSun: number;
+  tokens: TokenBalance[];
+}
+
+/**
+ * Fetches TRX plus every configured TRC20 balance for the network in parallel.
+ * A single token's failure yields a 0 balance rather than failing the whole set.
+ */
+export async function fetchTronAssets(
   networkId: TronNetworkId,
   address: string,
-): Promise<TronBalances> {
+): Promise<TronAssets> {
   const tronWeb = createTronWeb(networkId);
-  // Contract read calls require an address context even without a private key.
   tronWeb.setAddress(address);
-  const config = getTronNetworkConfig(networkId);
+  const { tokens } = getTronNetworkConfig(networkId);
+
+  let trxSun: number;
   try {
-    const trxSun = await tronWeb.trx.getBalance(address);
-    const contract = await tronWeb.contract().at(config.usdtContract);
-    const rawBalance = await contract.balanceOf(address).call();
-    return { trxSun, usdtUnits: BigInt(rawBalance.toString()) };
+    trxSun = await tronWeb.trx.getBalance(address);
   } catch (error) {
     throw new TronApiError(
-      `Failed to fetch Tron balances: ${error instanceof Error ? error.message : String(error)}`,
+      `Failed to fetch TRX balance: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  const balances = await Promise.all(
+    tokens.map(async (token): Promise<TokenBalance> => {
+      try {
+        // Minimal ABI avoids a per-token on-chain ABI fetch, keeping this fast.
+        const contract = tronWeb.contract(TRC20_ABI as unknown as never[], token.contract);
+        const raw = await contract.balanceOf(address).call();
+        return { token, units: BigInt(raw.toString()) };
+      } catch {
+        return { token, units: 0n };
+      }
+    }),
+  );
+
+  return { trxSun, tokens: balances };
+}
+
+/** Balance of a single TRC20 token (base units). Used by the send-screen Max button. */
+export async function fetchTrc20Balance(
+  networkId: TronNetworkId,
+  address: string,
+  token: Trc20Token,
+): Promise<bigint> {
+  const tronWeb = createTronWeb(networkId);
+  tronWeb.setAddress(address);
+  try {
+    const contract = tronWeb.contract(TRC20_ABI as unknown as never[], token.contract);
+    const raw = await contract.balanceOf(address).call();
+    return BigInt(raw.toString());
+  } catch (error) {
+    throw new TronApiError(
+      `Failed to fetch ${token.symbol} balance: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }
 
-export interface UsdtTransferParams {
+export interface Trc20TransferParams {
   mnemonic: string;
   networkId: TronNetworkId;
+  token: Trc20Token;
   toAddress: string;
   amountUnits: bigint;
 }
 
 /**
- * Signs and broadcasts a USDT transfer. Verifies the account holds enough TRX
- * for fees first. Returns the transaction id.
+ * Signs and broadcasts a TRC20 transfer for any token. Verifies the account
+ * holds enough TRX for fees first. Returns the transaction id.
  */
-export async function sendUsdt(params: UsdtTransferParams): Promise<string> {
-  const { mnemonic, networkId, toAddress, amountUnits } = params;
-  const config = getTronNetworkConfig(networkId);
+export async function sendTrc20(params: Trc20TransferParams): Promise<string> {
+  const { mnemonic, networkId, token, toAddress, amountUnits } = params;
 
   const privateKey = await deriveTronPrivateKey(mnemonic);
   const tronWeb = createTronWeb(networkId, privateKey);
@@ -81,14 +124,14 @@ export async function sendUsdt(params: UsdtTransferParams): Promise<string> {
   }
 
   try {
-    const contract = await tronWeb.contract().at(config.usdtContract);
+    const contract = tronWeb.contract(TRC20_ABI as unknown as never[], token.contract);
     const txid: string = await contract
       .transfer(toAddress, amountUnits.toString())
       .send({ feeLimit: TRC20_FEE_LIMIT_SUN });
     return txid;
   } catch (error) {
     throw new TronApiError(
-      `USDT transfer failed: ${error instanceof Error ? error.message : String(error)}`,
+      `${token.symbol} transfer failed: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }
@@ -99,30 +142,40 @@ const trc20TransferSchema = z.object({
   to: z.string(),
   value: z.string(),
   block_timestamp: z.number(),
+  token_info: z
+    .object({
+      symbol: z.string().optional(),
+      decimals: z.number().optional(),
+      address: z.string().optional(),
+    })
+    .optional(),
 });
 
 const trc20HistoryResponseSchema = z.object({
   data: z.array(trc20TransferSchema),
 });
 
-export interface UsdtTransfer {
+export interface Trc20Transfer {
   txid: string;
   direction: 'in' | 'out';
   amountUnits: bigint;
   counterparty: string;
   timestampMs: number;
+  symbol: string;
+  decimals: number;
 }
 
-/** Recent USDT transfers for an address via TronGrid's TRC20 endpoint. */
-export async function fetchUsdtHistory(
+/**
+ * Recent TRC20 transfers (all tokens) for an address via TronGrid. Token symbol
+ * and decimals come from the API's token_info, so any token is labeled correctly.
+ */
+export async function fetchTrc20History(
   networkId: TronNetworkId,
   address: string,
   limit = 30,
-): Promise<UsdtTransfer[]> {
+): Promise<Trc20Transfer[]> {
   const config = getTronNetworkConfig(networkId);
-  const url =
-    `${config.fullHost}/v1/accounts/${address}/transactions/trc20` +
-    `?limit=${limit}&contract_address=${config.usdtContract}`;
+  const url = `${config.fullHost}/v1/accounts/${address}/transactions/trc20?limit=${limit}`;
   let response: Response;
   try {
     response = await fetch(url);
@@ -139,11 +192,9 @@ export async function fetchUsdtHistory(
     amountUnits: BigInt(t.value),
     counterparty: t.to === address ? t.from : t.to,
     timestampMs: t.block_timestamp,
+    symbol: t.token_info?.symbol || 'TRC20',
+    decimals: t.token_info?.decimals ?? 6,
   }));
-}
-
-export function formatUsdt(units: bigint): string {
-  return formatUnits(units, USDT_DECIMALS);
 }
 
 export function formatTrx(sun: number): string {
