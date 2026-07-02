@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Private BTC TRC20 Wallet (Testnet)",
+  "version": "0.1.0",
+  "description": "Non-custodial BTC + USDT-TRC20 wallet. TESTNET ONLY — not audited, do not use with real funds.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Private BTC TRC20 Wallet"
+  },
+  "background": {
+    "service_worker": "serviceWorker.js",
+    "type": "module"
+  },
+  "permissions": ["storage", "alarms"],
+  "host_permissions": [
+    "https://mempool.space/*",
+    "https://blockstream.info/*",
+    "https://nile.trongrid.io/*",
+    "https://api.shasta.trongrid.io/*",
+    "https://api.trongrid.io/*"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}
