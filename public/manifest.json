@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Private BTC TRC20 Wallet (Testnet)",
+  "name": "Private BTC TRC20 Wallet",
   "version": "0.1.0",
-  "description": "Non-custodial BTC + USDT-TRC20 wallet. TESTNET ONLY — not audited, do not use with real funds.",
+  "description": "Non-custodial BTC + USDT-TRC20 wallet. Not audited — defaults to testnet; mainnet is opt-in. Keep only small amounts.",
   "action": {
     "default_popup": "popup.html",
     "default_title": "Private BTC TRC20 Wallet"

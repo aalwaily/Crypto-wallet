@@ -75,6 +75,13 @@ export const MIN_TRX_FOR_FEES_SUN = 30_000_000; // 30 TRX
 /** Outputs below this value (sats) are treated as dust for P2WPKH. */
 export const BTC_DUST_SATS = 294;
 
+/**
+ * Hard ceiling on the Bitcoin fee rate we will accept from a fee-estimate API.
+ * Even congested mainnet rarely exceeds a few hundred sat/vB; anything above
+ * this is treated as a hostile or broken provider response and rejected.
+ */
+export const MAX_BTC_FEE_RATE_SAT_PER_VB = 2_000;
+
 /** PBKDF2 iteration count for the vault key (OWASP 2023 recommendation for SHA-256). */
 export const PBKDF2_ITERATIONS = 600_000;
 

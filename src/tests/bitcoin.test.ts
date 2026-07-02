@@ -95,4 +95,17 @@ describe('transaction building (testnet)', () => {
       }),
     ).rejects.toThrow(InsufficientFundsError);
   });
+
+  it('refuses to sign with an out-of-range (hostile) fee rate', async () => {
+    await expect(
+      buildAndSignBtcTx({
+        mnemonic: MNEMONIC,
+        networkId: 'testnet',
+        utxos: [fakeUtxo(100_000_000)],
+        toAddress: 'tb1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl',
+        amountSats: 10_000,
+        feeRateSatPerVb: 500_000, // absurd rate a compromised API might return
+      }),
+    ).rejects.toThrow(/safe range/);
+  });
 });

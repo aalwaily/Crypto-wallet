@@ -124,8 +124,10 @@ export function SendBitcoin() {
     setStep({ ...step, name: 'broadcasting' });
     setError(null);
     try {
-      const txid = await broadcastTx(baseUrl, step.tx.hex);
-      setStep({ name: 'done', txid });
+      // Broadcast for its success/failure only; show the locally computed txid
+      // so a malicious provider cannot echo a fabricated id.
+      await broadcastTx(baseUrl, step.tx.hex);
+      setStep({ name: 'done', txid: step.tx.txid });
     } catch (e) {
       setError(formatError(e));
       setStep({ ...step, name: 'confirm' });

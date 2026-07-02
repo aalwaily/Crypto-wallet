@@ -4,7 +4,7 @@ import { ECPairFactory } from 'ecpair';
 import * as ecc from '@bitcoinerlab/secp256k1';
 import { mnemonicToSeed } from './mnemonic';
 import { getBitcoinJsNetwork, getBtcNetworkConfig } from './networks';
-import { BTC_DUST_SATS } from '../config';
+import { BTC_DUST_SATS, MAX_BTC_FEE_RATE_SAT_PER_VB } from '../config';
 import type { BtcNetworkId } from '../config';
 import type { Utxo } from '../services/bitcoinApi';
 
@@ -126,6 +126,14 @@ export async function buildAndSignBtcTx(params: BuildTxParams): Promise<SignedTx
 
   const payment = bitcoin.payments.p2wpkh({ pubkey: node.publicKey, network });
   if (!payment.output || !payment.address) throw new Error('Failed to build P2WPKH script.');
+
+  // Defense in depth: refuse an out-of-range fee rate even if the API clamp was bypassed.
+  if (feeRateSatPerVb < 1 || feeRateSatPerVb > MAX_BTC_FEE_RATE_SAT_PER_VB) {
+    throw new Error(
+      `Refusing to sign: fee rate ${feeRateSatPerVb} sat/vB is outside the safe range ` +
+        `(1–${MAX_BTC_FEE_RATE_SAT_PER_VB}). The fee provider may be compromised.`,
+    );
+  }
 
   const selection = selectCoins(utxos, amountSats, feeRateSatPerVb);
 

@@ -63,6 +63,14 @@ describe('bitcoinApi (mocked)', () => {
     expect(fees.slowSatPerVb).toBe(1);
   });
 
+  it('clamps an absurd fee rate from a hostile provider', async () => {
+    mockFetchOnce({ '1': 500_000, '3': 500_000, '6': 500_000 });
+    const fees = await fetchFeeEstimates(BASE);
+    expect(fees.fastSatPerVb).toBe(2_000);
+    expect(fees.normalSatPerVb).toBe(2_000);
+    expect(fees.slowSatPerVb).toBe(2_000);
+  });
+
   it('broadcasts a transaction and returns the txid', async () => {
     mockFetchOnce('abc123txid\n', { text: true });
     const txid = await broadcastTx(BASE, '020000000001…');

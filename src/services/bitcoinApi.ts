@@ -4,6 +4,7 @@
  * API shape so no provider-specific code is needed.
  */
 import { z } from 'zod';
+import { MAX_BTC_FEE_RATE_SAT_PER_VB } from '../config';
 
 const addressStatsSchema = z.object({
   chain_stats: z.object({
@@ -91,7 +92,8 @@ export async function fetchFeeEstimates(baseUrl: string): Promise<FeeEstimates> 
       .sort((a, b) => a - b);
     const key = keys[0];
     const value = key !== undefined ? raw[String(key)] : undefined;
-    return Math.max(1, Math.ceil(value ?? 1));
+    // Clamp to [1, MAX] — a hostile provider must not be able to inflate the fee.
+    return Math.min(MAX_BTC_FEE_RATE_SAT_PER_VB, Math.max(1, Math.ceil(value ?? 1)));
   };
   return { fastSatPerVb: pick(1), normalSatPerVb: pick(3), slowSatPerVb: pick(6) };
 }
