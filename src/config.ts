@@ -98,10 +98,16 @@ export const TRON_DERIVATION_PATH = "m/44'/195'/0'/0/0";
 
 /**
  * Optional TronGrid API key. The free public endpoint is heavily rate-limited
- * (HTTP 429). Get a free key at https://www.trongrid.io and paste it here to
- * raise the limit. Leave empty to use the anonymous public endpoint.
+ * (HTTP 429). Get a free key at https://www.trongrid.io and put it in a
+ * gitignored `.env.local` file at the project root:
+ *
+ *   VITE_TRONGRID_API_KEY=your-key-here
+ *
+ * It is read at build time and never committed. Leave unset to use the
+ * anonymous public endpoint.
  */
-export const TRONGRID_API_KEY = '';
+export const TRONGRID_API_KEY: string =
+  (import.meta.env.VITE_TRONGRID_API_KEY as string | undefined) ?? '';
 
 /** Minimal TRC20 ABI — enough for balanceOf/transfer without an on-chain ABI fetch. */
 export const TRC20_ABI = [
