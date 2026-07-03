@@ -8,6 +8,8 @@ A non-custodial Chrome extension wallet for **Bitcoin (testnet)** and **USDT-TRC
 
 ## Features
 
+- **Multiple wallets**: add any number of wallets by their seed phrase, name them, and switch between them from the dashboard — one app password unlocks them all
+- **All Bitcoin address types**: imports from Trust, legacy wallets, or any BIP39 wallet work — legacy (`1…`, BIP44), nested SegWit (`3…`, BIP49), and native SegWit (`bc1…`, BIP84) are all derived; the funded type is auto-detected on import, and sending works from any type
 - 12-word BIP39 seed phrase, generated locally — never leaves your device
 - Seed encrypted at rest with **AES-256-GCM**, key derived via **PBKDF2-SHA256 (600k iterations)** using the Web Crypto API
 - Bitcoin native SegWit (bech32) address at `m/84'/1'/0'/0/0` (BIP84, testnet)
@@ -89,7 +91,8 @@ Covers mnemonic generation/validation, AES-GCM encrypt/decrypt (incl. tampering)
 
 ## Known limitations
 
-- **Single address per chain** (index 0). No address rotation or account discovery.
+- **Single address per chain, per wallet** (index 0). No address rotation or gap-limit account discovery — an imported wallet's balance shows only if its funds are at the first address of a standard type. Auto-detection picks the address type (legacy/nested/native) that currently holds a balance.
+- MetaMask seeds work but show only BTC/Tron — MetaMask holds Ethereum assets, which this wallet does not support.
 - History shows recent transactions only (BTC: latest ~25 from Esplora; USDT: latest 30 TRC20 transfers). TRX-only transfers are not listed.
 - Seed backup has no verification quiz; you confirm with a checkbox only.
 - JavaScript cannot reliably zero memory; decrypted secrets live in GC-managed memory while unlocked.

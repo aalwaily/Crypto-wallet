@@ -17,6 +17,7 @@ import { useWallet } from '../state/WalletContext';
 import {
   broadcastTx,
   fetchFeeEstimates,
+  fetchTxHex,
   fetchUtxos,
   type FeeEstimates,
 } from '../../services/bitcoinApi';
@@ -81,7 +82,9 @@ export function SendBitcoin() {
         (u) => u.status.confirmed,
       );
       const total = utxos.reduce((sum, u) => sum + u.value, 0);
-      const fee = Math.ceil(estimateVsize(utxos.length, 1) * feeRateFor(feeTier));
+      const fee = Math.ceil(
+        estimateVsize(utxos.length, 1, accounts.btc.addressType) * feeRateFor(feeTier),
+      );
       const spendable = total - fee;
       if (spendable <= 0) {
         setError('Balance is too small to cover the network fee.');
@@ -106,10 +109,13 @@ export function SendBitcoin() {
       const tx = await buildAndSignBtcTx({
         mnemonic,
         networkId: settings.btcNetwork,
+        addressType: accounts.btc.addressType,
         utxos,
         toAddress: to.trim(),
         amountSats: Number(amountSats),
         feeRateSatPerVb: feeRateFor(feeTier),
+        // Legacy (P2PKH) inputs need the full previous tx to sign.
+        fetchRawTx: (txid) => fetchTxHex(baseUrl, txid),
       });
       setStep({ name: 'confirm', tx, to: to.trim(), amountSats: Number(amountSats) });
     } catch (e) {

@@ -38,6 +38,30 @@ describe('bitcoin derivation', () => {
     const b = await deriveBtcAccount(MNEMONIC, 'testnet');
     expect(a.address).toBe(b.address);
   });
+
+  it('matches the official BIP44 (legacy) mainnet vector', async () => {
+    const account = await deriveBtcAccount(MNEMONIC, 'mainnet', 'legacy');
+    expect(account.address).toBe('1LqBGSKuX5yYUonjxT5qGfpUsXKYYWeabA');
+    expect(account.derivationPath).toBe("m/44'/0'/0'/0/0");
+  });
+
+  it('matches the official BIP49 (nested SegWit) mainnet vector', async () => {
+    const account = await deriveBtcAccount(MNEMONIC, 'mainnet', 'nested');
+    expect(account.address).toBe('37VucYSaXLCAsxYyAPfbSi9eh4iEcbShgf');
+    expect(account.derivationPath).toBe("m/49'/0'/0'/0/0");
+  });
+
+  it('derives all three testnet address types', async () => {
+    expect((await deriveBtcAccount(MNEMONIC, 'testnet', 'legacy')).address).toBe(
+      'mkpZhYtJu2r87Js3pDiWJDmPte2NRZ8bJV',
+    );
+    expect((await deriveBtcAccount(MNEMONIC, 'testnet', 'nested')).address).toBe(
+      '2Mww8dCYPUpKHofjgcXcBCEGmniw9CoaiD2',
+    );
+    expect((await deriveBtcAccount(MNEMONIC, 'testnet', 'native')).address).toBe(
+      'tb1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl',
+    );
+  });
 });
 
 describe('coin selection', () => {
@@ -62,10 +86,11 @@ describe('coin selection', () => {
 });
 
 describe('transaction building (testnet)', () => {
-  it('builds and signs a valid P2WPKH transaction with change', async () => {
+  it('builds and signs a valid P2WPKH (native) transaction with change', async () => {
     const signed = await buildAndSignBtcTx({
       mnemonic: MNEMONIC,
       networkId: 'testnet',
+      addressType: 'native',
       utxos: [fakeUtxo(100_000)],
       toAddress: 'tb1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl',
       amountSats: 50_000,
@@ -83,11 +108,29 @@ describe('transaction building (testnet)', () => {
     expect(tx.ins[0]!.witness.length).toBe(2);
   });
 
+  it('builds and signs a nested SegWit (P2SH-P2WPKH) transaction', async () => {
+    const signed = await buildAndSignBtcTx({
+      mnemonic: MNEMONIC,
+      networkId: 'testnet',
+      addressType: 'nested',
+      utxos: [fakeUtxo(100_000)],
+      toAddress: '2Mww8dCYPUpKHofjgcXcBCEGmniw9CoaiD2',
+      amountSats: 50_000,
+      feeRateSatPerVb: 2,
+    });
+    const tx = Transaction.fromHex(signed.hex);
+    expect(tx.getId()).toBe(signed.txid);
+    // Nested SegWit has both a scriptSig (redeem) and a witness.
+    expect(tx.ins[0]!.script.length).toBeGreaterThan(0);
+    expect(tx.ins[0]!.witness.length).toBe(2);
+  });
+
   it('propagates insufficient funds as a typed error', async () => {
     await expect(
       buildAndSignBtcTx({
         mnemonic: MNEMONIC,
         networkId: 'testnet',
+        addressType: 'native',
         utxos: [fakeUtxo(1_000)],
         toAddress: 'tb1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl',
         amountSats: 50_000,
@@ -101,6 +144,7 @@ describe('transaction building (testnet)', () => {
       buildAndSignBtcTx({
         mnemonic: MNEMONIC,
         networkId: 'testnet',
+        addressType: 'native',
         utxos: [fakeUtxo(100_000_000)],
         toAddress: 'tb1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl',
         amountSats: 10_000,

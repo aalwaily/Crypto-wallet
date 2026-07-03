@@ -120,7 +120,7 @@ export function Skeleton({ width, height = 16 }: { width: number | string; heigh
 }
 
 interface ScreenProps {
-  title?: string;
+  title?: ReactNode;
   back?: string;
   actions?: ReactNode;
   withTabBar?: boolean;

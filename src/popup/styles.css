@@ -491,6 +491,69 @@ p {
   flex: 1;
 }
 
+/* ---------- Wallet switcher ---------- */
+
+.wallet-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  padding: 3px 6px;
+  margin-left: -6px;
+  border-radius: 8px;
+  max-width: 190px;
+  transition: background var(--dur) var(--ease-out);
+}
+
+.wallet-switcher:hover {
+  background: var(--surface-2);
+}
+
+.wallet-switcher .wallet-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wallet-switcher svg {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.wallet-select {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  background: none;
+  border: none;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+
+.wallet-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  flex-shrink: 0;
+}
+
+.wallet-dot.active {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
 /* ---------- Multi-asset list ---------- */
 
 .section-label {

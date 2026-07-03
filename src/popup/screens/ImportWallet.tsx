@@ -2,12 +2,13 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Alert, Button, Field, Screen, TextArea, TextInput, formatError } from '../components/ui';
 import { normalizeMnemonic, validateMnemonic } from '../../wallet/mnemonic';
+import { detectFundedBtcType } from '../../wallet/btcDetect';
 import { useWallet } from '../state/WalletContext';
 import { MIN_PASSWORD_LENGTH } from '../../config';
 
 export function ImportWallet() {
   const navigate = useNavigate();
-  const { createWallet } = useWallet();
+  const { createWallet, settings } = useWallet();
   const [phrase, setPhrase] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -35,7 +36,9 @@ export function ImportWallet() {
     setBusy(true);
     setError(null);
     try {
-      await createWallet(normalized, password);
+      // Detect which BTC address type the imported wallet actually uses.
+      const btcType = await detectFundedBtcType(normalized, settings);
+      await createWallet(normalized, password, btcType);
       navigate('/dashboard', { replace: true });
     } catch (e) {
       setError(formatError(e));

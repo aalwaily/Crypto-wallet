@@ -8,6 +8,8 @@ import { BackupSeed } from '../screens/BackupSeed';
 import { Unlock } from '../screens/Unlock';
 import { Dashboard } from '../screens/Dashboard';
 import { History } from '../screens/History';
+import { WalletList } from '../screens/WalletList';
+import { AddWallet } from '../screens/AddWallet';
 import { SendBitcoin } from '../screens/SendBitcoin';
 import { SendToken } from '../screens/SendToken';
 import { Settings } from '../screens/Settings';
@@ -73,6 +75,22 @@ export function AppRoutes() {
         element={
           <RequireUnlocked>
             <History />
+          </RequireUnlocked>
+        }
+      />
+      <Route
+        path="/wallets"
+        element={
+          <RequireUnlocked>
+            <WalletList />
+          </RequireUnlocked>
+        }
+      />
+      <Route
+        path="/add-wallet"
+        element={
+          <RequireUnlocked>
+            <AddWallet />
           </RequireUnlocked>
         }
       />

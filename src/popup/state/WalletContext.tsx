@@ -7,14 +7,25 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { createVault, deleteVault, unlockVault, vaultExists } from '../../wallet/vault';
+import {
+  addWallet as vaultAddWallet,
+  createFirstWallet,
+  deleteAllWallets,
+  removeWallet as vaultRemoveWallet,
+  renameWallet as vaultRenameWallet,
+  setActiveWallet,
+  unlockAll,
+  vaultExists,
+  type UnlockedStore,
+  type WalletMeta,
+} from '../../wallet/vault';
 import {
   clearSession,
   getUnlockedSession,
   saveUnlockedSession,
   touchActivity,
 } from '../../wallet/session';
-import { deriveBtcAccount, type BtcAccount } from '../../wallet/bitcoin';
+import { deriveBtcAccount, type BtcAccount, type BtcAddressType } from '../../wallet/bitcoin';
 import { deriveTronAccount, type TronAccount } from '../../wallet/tron';
 import {
   DEFAULT_SETTINGS,
@@ -37,12 +48,28 @@ interface WalletContextValue {
   status: WalletStatus;
   accounts: Accounts | null;
   settings: Settings;
-  /** Decrypted mnemonic; non-null only while unlocked. Never persist it. */
+  /** Active wallet's decrypted mnemonic; non-null only while unlocked. */
   mnemonic: string | null;
+  /** Metadata for all wallets (name, id, btc type). */
+  wallets: WalletMeta[];
+  activeId: string | null;
   unlock(password: string): Promise<void>;
   lock(): Promise<void>;
-  createWallet(mnemonic: string, password: string): Promise<void>;
-  removeWallet(): Promise<void>;
+  /** Creates the very first wallet. */
+  createWallet(mnemonic: string, password: string, btcAddressType?: BtcAddressType): Promise<void>;
+  /** Adds another wallet to an unlocked store (needs the app password). */
+  addWallet(
+    mnemonic: string,
+    password: string,
+    name: string,
+    btcAddressType?: BtcAddressType,
+  ): Promise<void>;
+  switchWallet(id: string): Promise<void>;
+  renameWallet(id: string, name: string): Promise<void>;
+  /** Removes a wallet (defaults to the active one). */
+  removeWallet(id?: string): Promise<void>;
+  /** Deletes ALL wallets from the device. */
+  deleteEverything(): Promise<void>;
   updateSettings(patch: Partial<Settings>): Promise<void>;
 }
 
@@ -58,13 +85,17 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<WalletStatus>('loading');
   const [accounts, setAccounts] = useState<Accounts | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [wallets, setWallets] = useState<WalletMeta[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [mnemonic, setMnemonic] = useState<string | null>(null);
+  // In-memory copy of the unlocked store (all decrypted mnemonics). Never persisted to disk.
+  const storeRef = useRef<UnlockedStore | null>(null);
   const lastTouchRef = useRef(0);
 
   const deriveAccounts = useCallback(
-    async (phrase: string, currentSettings: Settings): Promise<Accounts> => {
+    async (phrase: string, type: BtcAddressType, currentSettings: Settings): Promise<Accounts> => {
       const [btc, tron] = await Promise.all([
-        deriveBtcAccount(phrase, currentSettings.btcNetwork),
+        deriveBtcAccount(phrase, currentSettings.btcNetwork, type),
         deriveTronAccount(phrase),
       ]);
       return { btc, tron };
@@ -72,19 +103,38 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const becomeUnlocked = useCallback(
-    async (phrase: string, currentSettings: Settings) => {
-      const derived = await deriveAccounts(phrase, currentSettings);
-      setMnemonic(phrase);
-      setAccounts(derived);
-      setStatus('unlocked');
+  const applyActive = useCallback(
+    async (store: UnlockedStore, currentSettings: Settings) => {
+      const active =
+        store.wallets.find((w) => w.id === store.activeId) ?? store.wallets[0];
+      if (!active) return;
+      setActiveId(active.id);
+      setMnemonic(active.mnemonic);
+      setAccounts(await deriveAccounts(active.mnemonic, active.btcAddressType, currentSettings));
     },
     [deriveAccounts],
   );
 
+  const becomeUnlocked = useCallback(
+    async (store: UnlockedStore, currentSettings: Settings) => {
+      storeRef.current = store;
+      setWallets(store.wallets.map(({ id, name, btcAddressType, createdAt }) => ({
+        id,
+        name,
+        btcAddressType,
+        createdAt,
+      })));
+      await applyActive(store, currentSettings);
+      setStatus('unlocked');
+    },
+    [applyActive],
+  );
+
   const becomeLocked = useCallback(() => {
+    storeRef.current = null;
     setMnemonic(null);
     setAccounts(null);
+    setActiveId(null);
     setStatus('locked');
   }, []);
 
@@ -104,7 +154,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       }
       const session = await getUnlockedSession();
       if (session) {
-        await becomeUnlocked(session.mnemonic, loaded);
+        await becomeUnlocked(session.store, loaded);
       } else {
         setStatus('locked');
       }
@@ -114,11 +164,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   // Lock the UI immediately if the background worker wipes the session.
   useEffect(() => {
     if (typeof chrome === 'undefined' || !chrome.storage?.onChanged) return;
-    const listener = (
-      changes: Record<string, chrome.storage.StorageChange>,
-      area: string,
-    ) => {
-      if (area === 'session' && 'unlockedSession' in changes && !changes['unlockedSession']?.newValue) {
+    const listener = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
+      if (
+        area === 'session' &&
+        'unlockedSession' in changes &&
+        !changes['unlockedSession']?.newValue
+      ) {
         becomeLocked();
       }
     };
@@ -147,9 +198,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const unlock = useCallback(
     async (password: string) => {
-      const phrase = await unlockVault(password);
-      await saveUnlockedSession(phrase);
-      await becomeUnlocked(phrase, settings);
+      const store = await unlockAll(password);
+      await saveUnlockedSession(store);
+      await becomeUnlocked(store, settings);
     },
     [becomeUnlocked, settings],
   );
@@ -160,19 +211,93 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, [becomeLocked]);
 
   const createWallet = useCallback(
-    async (phrase: string, password: string) => {
-      await createVault(phrase, password);
-      await saveUnlockedSession(phrase);
-      await becomeUnlocked(phrase, settings);
+    async (phrase: string, password: string, btcAddressType: BtcAddressType = 'native') => {
+      await createFirstWallet(phrase, password, 'Wallet 1', btcAddressType);
+      const store = await unlockAll(password);
+      await saveUnlockedSession(store);
+      await becomeUnlocked(store, settings);
     },
     [becomeUnlocked, settings],
   );
 
-  const removeWallet = useCallback(async () => {
+  const addWallet = useCallback(
+    async (
+      phrase: string,
+      password: string,
+      name: string,
+      btcAddressType: BtcAddressType = 'native',
+    ) => {
+      await vaultAddWallet(phrase, password, name, btcAddressType);
+      // Re-unlock to refresh the in-memory store (also verifies the password).
+      const store = await unlockAll(password);
+      await saveUnlockedSession(store);
+      await becomeUnlocked(store, settings);
+    },
+    [becomeUnlocked, settings],
+  );
+
+  const switchWallet = useCallback(
+    async (id: string) => {
+      const store = storeRef.current;
+      if (!store) return;
+      const next: UnlockedStore = { ...store, activeId: id };
+      storeRef.current = next;
+      await setActiveWallet(id);
+      await saveUnlockedSession(next);
+      await applyActive(next, settings);
+    },
+    [applyActive, settings],
+  );
+
+  const renameWallet = useCallback(async (id: string, name: string) => {
+    await vaultRenameWallet(id, name);
+    setWallets((prev) => prev.map((w) => (w.id === id ? { ...w, name } : w)));
+    if (storeRef.current) {
+      storeRef.current = {
+        ...storeRef.current,
+        wallets: storeRef.current.wallets.map((w) => (w.id === id ? { ...w, name } : w)),
+      };
+    }
+  }, []);
+
+  const removeWallet = useCallback(
+    async (id?: string) => {
+      const targetId = id ?? activeId;
+      if (!targetId) return;
+      const remaining = await vaultRemoveWallet(targetId);
+      if (remaining === 0) {
+        await clearSession();
+        becomeLocked();
+        setWallets([]);
+        setStatus('no-wallet');
+        return;
+      }
+      const store = storeRef.current;
+      if (!store) return;
+      const filtered = store.wallets.filter((w) => w.id !== targetId);
+      const nextActiveId = store.activeId === targetId ? filtered[0]!.id : store.activeId;
+      const next: UnlockedStore = { activeId: nextActiveId, wallets: filtered };
+      storeRef.current = next;
+      setWallets(filtered.map(({ id: wid, name, btcAddressType, createdAt }) => ({
+        id: wid,
+        name,
+        btcAddressType,
+        createdAt,
+      })));
+      await saveUnlockedSession(next);
+      await applyActive(next, settings);
+    },
+    [activeId, applyActive, becomeLocked, settings],
+  );
+
+  const deleteEverything = useCallback(async () => {
     await clearSession();
-    await deleteVault();
+    await deleteAllWallets();
+    storeRef.current = null;
     setMnemonic(null);
     setAccounts(null);
+    setActiveId(null);
+    setWallets([]);
     setStatus('no-wallet');
   }, []);
 
@@ -181,12 +306,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const next = sanitizeSettings(settingsSchema.parse({ ...settings, ...patch }));
       setSettings(next);
       await storageSet(SETTINGS_KEY, next);
-      // Network changes require re-deriving addresses.
-      if (mnemonic && patch.btcNetwork) {
-        setAccounts(await deriveAccounts(mnemonic, next));
+      // A BTC network change requires re-deriving the active wallet's addresses.
+      if (storeRef.current && patch.btcNetwork) {
+        await applyActive(storeRef.current, next);
       }
     },
-    [settings, mnemonic, deriveAccounts],
+    [settings, applyActive],
   );
 
   return (
@@ -196,10 +321,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         accounts,
         settings,
         mnemonic,
+        wallets,
+        activeId,
         unlock,
         lock,
         createWallet,
+        addWallet,
+        switchWallet,
+        renameWallet,
         removeWallet,
+        deleteEverything,
         updateSettings,
       }}
     >

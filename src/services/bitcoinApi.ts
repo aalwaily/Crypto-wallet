@@ -104,6 +104,12 @@ export async function broadcastTx(baseUrl: string, txHex: string): Promise<strin
   return (await response.text()).trim();
 }
 
+/** Full raw transaction hex — required to sign legacy (P2PKH) inputs. */
+export async function fetchTxHex(baseUrl: string, txid: string): Promise<string> {
+  const response = await apiFetch(baseUrl, `/tx/${txid}/hex`);
+  return (await response.text()).trim();
+}
+
 const historyTxSchema = z.object({
   txid: z.string(),
   fee: z.number(),

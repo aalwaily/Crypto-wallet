@@ -19,7 +19,7 @@ import {
   IconSun,
 } from '../components/icons';
 import { useWallet } from '../state/WalletContext';
-import { unlockVault } from '../../wallet/vault';
+import { revealWallet } from '../../wallet/vault';
 import { BTC_NETWORKS, MAINNET_ENABLED } from '../../config';
 import type { BtcNetworkId, TronNetworkId } from '../../config';
 
@@ -27,7 +27,7 @@ type PendingSwitch = { chain: 'btc'; value: BtcNetworkId } | { chain: 'tron'; va
 
 export function Settings() {
   const navigate = useNavigate();
-  const { settings, updateSettings, removeWallet, lock } = useWallet();
+  const { settings, updateSettings, deleteEverything, activeId, wallets, lock } = useWallet();
   const [deleteText, setDeleteText] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -87,10 +87,11 @@ export function Settings() {
   };
 
   const onReveal = async () => {
+    if (!activeId) return;
     setRevealBusy(true);
     setRevealError(null);
     try {
-      setRevealedSeed(await unlockVault(revealPassword));
+      setRevealedSeed(await revealWallet(activeId, revealPassword));
       setRevealPassword('');
     } catch (e) {
       setRevealError(formatError(e));
@@ -279,8 +280,10 @@ export function Settings() {
         <div className="stack">
           <span className="danger-title">Danger zone</span>
           <p className="muted" style={{ fontSize: 12.5 }}>
-            Deleting the wallet erases the encrypted vault from this device. Without your seed
-            phrase backup, funds are lost forever. Type <strong>DELETE</strong> to confirm.
+            This deletes <strong>all {wallets.length} wallet{wallets.length === 1 ? '' : 's'}</strong>{' '}
+            and their encrypted vaults from this device. Without your seed phrase backups, funds are
+            lost forever. Type <strong>DELETE</strong> to confirm. (To remove a single wallet, use
+            the wallet switcher on the dashboard.)
           </p>
           <TextInput
             value={deleteText}
@@ -292,11 +295,11 @@ export function Settings() {
             variant="danger"
             disabled={deleteText !== 'DELETE'}
             onClick={async () => {
-              await removeWallet();
+              await deleteEverything();
               navigate('/', { replace: true });
             }}
           >
-            Delete wallet from this device
+            Delete all wallets from this device
           </Button>
         </div>
       </Card>

@@ -6,11 +6,14 @@
  * after a period of inactivity (see background/serviceWorker.ts).
  */
 
+import type { UnlockedStore } from './vault';
+
 const SESSION_KEY = 'unlockedSession';
 export const LAST_ACTIVITY_KEY = 'lastActivityAt';
 
 export interface UnlockedSession {
-  mnemonic: string;
+  /** All unlocked wallets (with decrypted mnemonics) + the active wallet id. */
+  store: UnlockedStore;
   unlockedAt: number;
 }
 
@@ -36,9 +39,9 @@ async function sessionSet(items: Record<string, unknown>): Promise<void> {
   for (const [k, v] of Object.entries(items)) memorySession.set(k, v);
 }
 
-export async function saveUnlockedSession(mnemonic: string): Promise<void> {
+export async function saveUnlockedSession(store: UnlockedStore): Promise<void> {
   await sessionSet({
-    [SESSION_KEY]: { mnemonic, unlockedAt: Date.now() } satisfies UnlockedSession,
+    [SESSION_KEY]: { store, unlockedAt: Date.now() } satisfies UnlockedSession,
     [LAST_ACTIVITY_KEY]: Date.now(),
   });
 }

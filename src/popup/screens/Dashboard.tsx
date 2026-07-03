@@ -13,6 +13,7 @@ import {
 } from '../components/ui';
 import {
   IconBtc,
+  IconChevronDown,
   IconChevronRight,
   IconLock,
   IconQr,
@@ -41,7 +42,8 @@ function TokenBadge({ symbol, color }: { symbol: string; color: string }) {
 
 export function Dashboard() {
   const navigate = useNavigate();
-  const { accounts, settings, lock } = useWallet();
+  const { accounts, settings, lock, wallets, activeId } = useWallet();
+  const activeName = wallets.find((w) => w.id === activeId)?.name ?? 'Wallet';
   const [btcBalance, setBtcBalance] = useState<Loadable<BtcBalance>>({ state: 'loading' });
   const [tron, setTron] = useState<Loadable<TronAssets>>({ state: 'loading' });
   const [showQr, setShowQr] = useState<'btc' | 'tron' | null>(null);
@@ -67,7 +69,16 @@ export function Dashboard() {
 
   return (
     <Screen
-      title="Wallet"
+      title={
+        <button
+          className="wallet-switcher"
+          onClick={() => navigate('/wallets')}
+          aria-label="Switch wallet"
+        >
+          <span className="wallet-name">{activeName}</span>
+          <IconChevronDown size={16} />
+        </button>
+      }
       withTabBar
       actions={
         <>
