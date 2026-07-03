@@ -116,7 +116,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   );
 
   const becomeUnlocked = useCallback(
-    async (store: UnlockedStore, currentSettings: Settings) => {
+    async (store: UnlockedStore | undefined, currentSettings: Settings) => {
+      // Guard against a stale/old-format session so the app never hangs on load.
+      if (!store || !Array.isArray(store.wallets) || store.wallets.length === 0) {
+        setStatus('locked');
+        return;
+      }
       storeRef.current = store;
       setWallets(store.wallets.map(({ id, name, btcAddressType, createdAt }) => ({
         id,
@@ -144,19 +149,33 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, [settings.theme]);
 
   // Initial load: settings, vault existence, and any live session.
+  // Fully guarded — any storage/session error resolves to a usable state
+  // (unlock or welcome) instead of an infinite loading spinner.
   useEffect(() => {
     void (async () => {
-      const loaded = await loadSettings();
-      setSettings(loaded);
-      if (!(await vaultExists())) {
-        setStatus('no-wallet');
-        return;
+      let loaded = DEFAULT_SETTINGS;
+      try {
+        loaded = await loadSettings();
+        setSettings(loaded);
+      } catch {
+        // Ignore — fall back to defaults.
       }
-      const session = await getUnlockedSession();
-      if (session) {
-        await becomeUnlocked(session.store, loaded);
-      } else {
-        setStatus('locked');
+      try {
+        if (!(await vaultExists())) {
+          setStatus('no-wallet');
+          return;
+        }
+        const session = await getUnlockedSession();
+        // becomeUnlocked itself falls back to 'locked' if the session is invalid.
+        await becomeUnlocked(session?.store, loaded);
+      } catch {
+        // Storage read/parse failed. If a vault of some form exists, show unlock;
+        // otherwise welcome. Never leave the app stuck on 'loading'.
+        try {
+          setStatus((await vaultExists()) ? 'locked' : 'no-wallet');
+        } catch {
+          setStatus('no-wallet');
+        }
       }
     })();
   }, [becomeUnlocked]);
