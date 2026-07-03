@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { Alert, Button, NetworkBadge, Screen } from '../components/ui';
+import { Alert, Button, NetworkBadge, Screen, openRecoveryTab } from '../components/ui';
 import { IconWallet } from '../components/icons';
 
 export function Welcome() {
@@ -23,6 +23,9 @@ export function Welcome() {
       <Button onClick={() => navigate('/create')}>Create new wallet</Button>
       <Button variant="secondary" onClick={() => navigate('/import')}>
         Import existing wallet
+      </Button>
+      <Button variant="ghost" onClick={openRecoveryTab}>
+        Recover a wallet (lost word order)
       </Button>
     </Screen>
   );

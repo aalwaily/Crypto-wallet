@@ -18,6 +18,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         popup: `${root}popup.html`,
+        recover: `${root}recover.html`,
         serviceWorker: `${root}src/background/serviceWorker.ts`,
       },
       output: {

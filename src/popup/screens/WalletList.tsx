@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Alert, Button, Card, Screen, TextInput, formatError } from '../components/ui';
+import { Alert, Button, Card, Screen, TextInput, formatError, openRecoveryTab } from '../components/ui';
 import { IconCheck, IconPencil, IconPlus, IconTrash } from '../components/icons';
 import { useWallet } from '../state/WalletContext';
 import type { BtcAddressType } from '../../wallet/bitcoin';
@@ -139,6 +139,9 @@ export function WalletList() {
       <Button onClick={() => navigate('/add-wallet')}>
         <IconPlus size={16} />
         Add wallet
+      </Button>
+      <Button variant="ghost" onClick={openRecoveryTab}>
+        Recover a wallet (lost word order)
       </Button>
     </Screen>
   );

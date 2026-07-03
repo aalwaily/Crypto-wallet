@@ -241,6 +241,19 @@ export function formatError(error: unknown): string {
   return String(error);
 }
 
+/** Opens the full-page word-order recovery tool in a new browser tab. */
+export function openRecoveryTab(): void {
+  const url =
+    typeof chrome !== 'undefined' && chrome.runtime?.getURL
+      ? chrome.runtime.getURL('recover.html')
+      : '/recover.html';
+  if (typeof chrome !== 'undefined' && chrome.tabs?.create) {
+    void chrome.tabs.create({ url });
+  } else {
+    window.open(url, '_blank');
+  }
+}
+
 export function shortAddress(address: string): string {
   if (address.length <= 16) return address;
   return `${address.slice(0, 8)}…${address.slice(-6)}`;
