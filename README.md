@@ -14,11 +14,22 @@ Recover a wallet from the command line — 100% local, all CPU cores, zero netwo
 npm run recover -- "excite high ? humor entire cabbage fantasy timber erosion smooth spell ?" "bc1q…youraddress"
 ```
 
-Paste your words in order and use `?` for each missing/unknown word; pass a known
-native-SegWit (`bc1…`/`tb1…`) address of yours. Or run `npm run recover` with no
-arguments for interactive prompts. For maximum safety, run it on an offline
-machine — it never makes a network request. It reconstructs *your own* wallet;
-it cannot guess an unknown seed (mathematically impossible).
+Paste your words in order and use `?` for each missing/unknown word. The second
+argument is one or **many** known native-SegWit (`bc1…`/`tb1…`) addresses:
+
+- a single address, or a comma/space separated list, or a **file path** (one address per line):
+
+```bash
+npm run recover -- "excite high ? humor entire cabbage fantasy timber erosion smooth spell ?" my-addresses.txt
+```
+
+For each guess it derives the seed once, then scans a range of receive/change
+address indices (default 25 + 5, override with `RECOVER_SCAN_RECEIVE` /
+`RECOVER_SCAN_CHANGE`) and checks them against your whole address set — so it
+finds the wallet no matter which of your addresses is index 0. Run `npm run
+recover` with no arguments for interactive prompts. For maximum safety, run it on
+an offline machine — it never makes a network request. It reconstructs *your own*
+wallet; it cannot guess an unknown seed (mathematically impossible).
 
 ## Features
 

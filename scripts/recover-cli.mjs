@@ -3,17 +3,22 @@
  * Offline word-order / missing-word recovery — terminal edition.
  *
  * 100% local, no internet. Reconstructs YOUR OWN wallet from words you provide,
- * matching a known native-SegWit (bc1…/tb1…) address. Uses one Node worker per
- * CPU core. It cannot guess an unknown seed — that is mathematically impossible.
+ * matching one or MANY known native-SegWit (bc1…/tb1…) addresses. For each guess
+ * it derives the seed once, then scans a range of receive/change address indices
+ * and checks them against your address set — so it hits no matter which of your
+ * addresses is index 0. Uses one Node worker per CPU core.
  *
- *   node scripts/recover-cli.mjs
+ * It cannot guess an unknown seed — that is mathematically impossible.
  *
- * At the prompt, paste your 12 (or 24) words in order and use "?" for each
- * missing/unknown word. Example:
- *   excite high ? humor entire cabbage fantasy timber erosion smooth spell ?
+ *   npm run recover -- "<words with ? for blanks>" "<addr1,addr2,…  OR  file.txt>"
+ *   npm run recover                (interactive prompts)
+ *
+ * Words: paste 12/24 words IN ORDER, using ? for each missing/unknown word.
+ * Addresses: comma/space/newline separated, or a path to a file (one per line).
  */
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 import os from 'node:os';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { wordlists } from 'bip39';
 import { pbkdf2 } from '@noble/hashes/pbkdf2';
@@ -27,6 +32,10 @@ const WORDS = wordlists.english;
 const WORD_INDEX = new Map(WORDS.map((w, i) => [w, i]));
 const enc = new TextEncoder();
 const SALT = enc.encode('mnemonic');
+
+// How many address indices to scan per candidate (receive branch 0, change branch 1).
+const SCAN_RECEIVE = Number(process.env.RECOVER_SCAN_RECEIVE || 25);
+const SCAN_CHANGE = Number(process.env.RECOVER_SCAN_CHANGE || 5);
 
 // ---- shared crypto (mirrors src/recover/fastDerive.ts) ----
 
@@ -57,28 +66,49 @@ function checksumValid(words) {
   return true;
 }
 
-function decodeNativeProgram(address) {
+function toHex(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) s += bytes[i].toString(16).padStart(2, '0');
+  return s;
+}
+
+/** Native-SegWit (v0) address → 20-byte hash160 hex, or null. */
+function decodeNativeHex(address) {
   try {
     const d = bech32.decode(address.trim());
     if (d.words[0] !== 0) return null;
     const program = bech32.fromWords(d.words.slice(1));
-    return program.length === 20 ? Uint8Array.from(program) : null;
+    return program.length === 20 ? toHex(program) : null;
   } catch {
     return null;
   }
 }
 
-function nativeMatches(words, network, target) {
+/**
+ * Derives the seed once, then scans receive/change indices, returning the first
+ * derived address that is in `targetSet` (as { branch, index, hex }), or null.
+ */
+function scanMatch(words, network, targetSet) {
   const seed = pbkdf2(sha512, enc.encode(words.join(' ').normalize('NFKD')), SALT, {
     c: 2048,
     dkLen: 64,
   });
-  const path = network === 'mainnet' ? "m/84'/0'/0'/0/0" : "m/84'/1'/0'/0/0";
-  const child = HDKey.fromMasterSeed(seed).derive(path);
-  if (!child.publicKey) return false;
-  const h = ripemd160(sha256(child.publicKey));
-  for (let i = 0; i < 20; i++) if (h[i] !== target[i]) return false;
-  return true;
+  const coin = network === 'mainnet' ? 0 : 1;
+  const account = HDKey.fromMasterSeed(seed).derive(`m/84'/${coin}'/0'`);
+  for (const [branch, depth] of [
+    [0, SCAN_RECEIVE],
+    [1, SCAN_CHANGE],
+  ]) {
+    if (depth <= 0) continue;
+    const branchNode = account.deriveChild(branch);
+    for (let i = 0; i < depth; i++) {
+      const child = branchNode.deriveChild(i);
+      if (!child.publicKey) continue;
+      const hex = toHex(ripemd160(sha256(child.publicKey)));
+      if (targetSet.has(hex)) return { branch, index: i, hex };
+    }
+  }
+  return null;
 }
 
 function* shardCandidates(template, shardIndex, shardCount) {
@@ -119,8 +149,8 @@ function* shardCandidates(template, shardIndex, shardCount) {
 // ---- worker ----
 
 if (!isMainThread) {
-  const { template, targetArr, network, shardIndex, shardCount } = workerData;
-  const target = Uint8Array.from(targetArr);
+  const { template, targets, network, shardIndex, shardCount } = workerData;
+  const targetSet = new Set(targets);
   let checked = 0;
   let valid = 0;
   let last = Date.now();
@@ -128,8 +158,9 @@ if (!isMainThread) {
     checked++;
     if (checksumValid(cand)) {
       valid++;
-      if (nativeMatches(cand, network, target)) {
-        parentPort.postMessage({ type: 'found', candidate: cand, checked, valid });
+      const hit = scanMatch(cand, network, targetSet);
+      if (hit) {
+        parentPort.postMessage({ type: 'found', candidate: cand, checked, valid, hit });
         process.exit(0);
       }
     }
@@ -158,27 +189,34 @@ function fmtDuration(ms) {
 }
 
 async function readInputs() {
-  // Non-interactive: node recover-cli.mjs "<words with ? for blanks>" "<address>"
   if (process.argv[2] && process.argv[3]) {
-    return { wordsLine: process.argv[2].trim().toLowerCase(), address: process.argv[3].trim() };
+    return { wordsLine: process.argv[2], addressArg: process.argv[3] };
   }
   const readline = await import('node:readline/promises');
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   console.log('\n  Offline wallet recovery (no internet) — bc1/tb1 addresses\n');
   console.log('  Paste your words IN ORDER. Use ? for each missing/unknown word.');
   console.log('  Example: excite high ? humor entire cabbage fantasy timber erosion smooth spell ?\n');
-  const wordsLine = (await rl.question('  Words: ')).trim().toLowerCase();
-  const address = (await rl.question('  Your address (bc1…): ')).trim();
+  const wordsLine = await rl.question('  Words: ');
+  const addressArg = await rl.question('  Address(es) — comma/space separated, or a file path: ');
   rl.close();
-  return { wordsLine, address };
+  return { wordsLine, addressArg };
+}
+
+function parseAddresses(arg) {
+  const text = fs.existsSync(arg) ? fs.readFileSync(arg, 'utf8') : arg;
+  return text
+    .split(/[\s,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 async function main() {
-  const { wordsLine, address } = await readInputs();
+  const { wordsLine, addressArg } = await readInputs();
 
-  const raw = wordsLine.split(/\s+/).filter(Boolean);
+  const raw = wordsLine.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (![12, 15, 18, 21, 24].includes(raw.length)) {
-    console.error(`\n  ✗ Expected 12–24 words, got ${raw.length}.`);
+    console.error(`\n  ✗ Expected 12–24 words (use ? for blanks), got ${raw.length}.`);
     process.exit(1);
   }
   const template = raw.map((w) => (w === '?' || w === '_' ? null : w));
@@ -187,26 +225,37 @@ async function main() {
     console.error(`\n  ✗ "${badWord}" is not a valid BIP39 word.`);
     process.exit(1);
   }
-  const network = address.startsWith('bc1') ? 'mainnet' : address.startsWith('tb1') ? 'testnet' : null;
-  const program = network ? decodeNativeProgram(address) : null;
-  if (!program) {
-    console.error('\n  ✗ This tool supports native-SegWit addresses only (bc1… / tb1…).');
+
+  // Build the target set from one or many native addresses.
+  const targetMap = new Map(); // hex -> original address
+  let network = null;
+  for (const addr of parseAddresses(addressArg)) {
+    const hex = decodeNativeHex(addr);
+    if (!hex) {
+      console.warn(`  ⚠ skipping non native-SegWit address: ${addr}`);
+      continue;
+    }
+    targetMap.set(hex, addr);
+    if (!network) network = addr.startsWith('tb1') ? 'testnet' : 'mainnet';
+  }
+  if (targetMap.size === 0) {
+    console.error('\n  ✗ No valid bc1…/tb1… address given. This tool matches native-SegWit only.');
     process.exit(1);
   }
+  const targets = [...targetMap.keys()];
 
   const unknownCount = template.filter((w) => !w).length;
-  const total = 2048 ** unknownCount;
   if (unknownCount === 0) {
     console.error('\n  ✗ Nothing to search — leave at least one word as ?.');
     process.exit(1);
   }
-
+  const total = 2048 ** unknownCount;
   const cores = Math.max(1, Math.min(os.cpus().length, 32));
   console.log(
-    `\n  ${unknownCount} unknown word(s) · ${total.toLocaleString()} combinations · ${cores} CPU cores\n`,
+    `\n  ${unknownCount} unknown word(s) · ${total.toLocaleString()} combinations · ` +
+      `${targetMap.size} address(es) · scanning ${SCAN_RECEIVE}+${SCAN_CHANGE} indices · ${cores} cores\n`,
   );
 
-  const targetArr = Array.from(program);
   const checkedArr = new Array(cores).fill(0);
   const validArr = new Array(cores).fill(0);
   const workers = [];
@@ -228,7 +277,7 @@ async function main() {
     );
   };
 
-  const finish = (candidate) => {
+  const finish = (candidate, hit) => {
     if (finished) return;
     finished = true;
     workers.forEach((w) => w.terminate());
@@ -236,11 +285,17 @@ async function main() {
     if (candidate) {
       console.log('\n\n  ✓ FOUND YOUR WALLET ORDER:\n');
       candidate.forEach((w, i) => console.log(`     ${String(i + 1).padStart(2)}. ${w}`));
-      console.log(`\n  Phrase: ${candidate.join(' ')}\n`);
-      console.log('  Write these words on paper in this exact order. Import them in the extension.\n');
+      console.log(`\n  Phrase: ${candidate.join(' ')}`);
+      if (hit) {
+        const matched = targetMap.get(hit.hex);
+        const branch = hit.branch === 0 ? 'receive' : 'change';
+        console.log(`  Matched: ${matched}  (${branch} index ${hit.index})`);
+      }
+      console.log('\n  Write these words on paper in this exact order, then import them.\n');
     } else {
-      console.log('\n\n  ✗ No combination produced that address.');
-      console.log('  Double-check the words and address, or you may be missing too many words.\n');
+      console.log('\n\n  ✗ No combination produced any of those addresses.');
+      console.log('  Check the words/addresses, raise scan depth (RECOVER_SCAN_RECEIVE), or you');
+      console.log('  may be missing too many words.\n');
     }
     process.exit(0);
   };
@@ -249,14 +304,14 @@ async function main() {
 
   for (let i = 0; i < cores; i++) {
     const worker = new Worker(self, {
-      workerData: { template, targetArr, network, shardIndex: i, shardCount: cores },
+      workerData: { template, targets, network, shardIndex: i, shardCount: cores },
     });
     worker.on('message', (m) => {
       checkedArr[i] = m.checked;
       validArr[i] = m.valid;
       if (m.type === 'found') {
         clearInterval(timer);
-        finish(m.candidate);
+        finish(m.candidate, m.hit);
       } else if (m.type === 'done') {
         done++;
         if (done === cores) {
@@ -265,9 +320,7 @@ async function main() {
         }
       }
     });
-    worker.on('error', (err) => {
-      console.error('\n  worker error:', err.message);
-    });
+    worker.on('error', (err) => console.error('\n  worker error:', err.message));
     workers.push(worker);
   }
 
