@@ -3,22 +3,24 @@
  * Offline word-order / missing-word recovery — terminal edition.
  *
  * 100% local, no internet. Reconstructs YOUR OWN wallet from words you provide,
- * matching one or MANY known native-SegWit (bc1…/tb1…) addresses. For each guess
- * it derives the seed once, then scans a range of receive/change address indices
- * and checks them against your address set — so it hits no matter which of your
- * addresses is index 0. Uses one Node worker per CPU core.
+ * matching one or MANY known native-SegWit (bc1…/tb1…) addresses. It cannot
+ * guess an unknown seed — that is mathematically impossible.
  *
- * It cannot guess an unknown seed — that is mathematically impossible.
- *
- *   npm run recover -- "<words with ? for blanks>" "<addr1,addr2,…  OR  file.txt>"
+ *   npm run recover -- [--random] "<words with ? for blanks>" "<addr1,addr2,…ORfile.txt>"
  *   npm run recover                (interactive prompts)
  *
  * Words: paste 12/24 words IN ORDER, using ? for each missing/unknown word.
  * Addresses: comma/space/newline separated, or a path to a file (one per line).
+ *
+ * --random : traverse the combinations in a shuffled (non-repeating) order via a
+ *            bijection instead of sequential order. NOTE: this does NOT make it
+ *            faster — the wallet's position is random, so expected time is the
+ *            same. It only changes which combinations are tried first.
  */
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 import os from 'node:os';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { wordlists } from 'bip39';
 import { pbkdf2 } from '@noble/hashes/pbkdf2';
@@ -32,6 +34,7 @@ const WORDS = wordlists.english;
 const WORD_INDEX = new Map(WORDS.map((w, i) => [w, i]));
 const enc = new TextEncoder();
 const SALT = enc.encode('mnemonic');
+const BASE = 2048n;
 
 // How many address indices to scan per candidate (receive branch 0, change branch 1).
 const SCAN_RECEIVE = Number(process.env.RECOVER_SCAN_RECEIVE || 25);
@@ -72,7 +75,6 @@ function toHex(bytes) {
   return s;
 }
 
-/** Native-SegWit (v0) address → 20-byte hash160 hex, or null. */
 function decodeNativeHex(address) {
   try {
     const d = bech32.decode(address.trim());
@@ -84,10 +86,6 @@ function decodeNativeHex(address) {
   }
 }
 
-/**
- * Derives the seed once, then scans receive/change indices, returning the first
- * derived address that is in `targetSet` (as { branch, index, hex }), or null.
- */
 function scanMatch(words, network, targetSet) {
   const seed = pbkdf2(sha512, enc.encode(words.join(' ').normalize('NFKD')), SALT, {
     c: 2048,
@@ -111,56 +109,45 @@ function scanMatch(words, network, targetSet) {
   return null;
 }
 
-function* shardCandidates(template, shardIndex, shardCount) {
-  const unknown = [];
+function unknownPositions(template) {
+  const u = [];
   template.forEach((w, i) => {
-    if (!w) unknown.push(i);
+    if (!w) u.push(i);
   });
-  const k = unknown.length;
-  const base = WORDS.length;
-  const candidate = template.slice();
-  if (k === 0) {
-    if (shardIndex === 0) yield candidate.slice();
-    return;
-  }
-  const per = Math.ceil(base / shardCount);
-  const lo = shardIndex * per;
-  const hi = Math.min(base, lo + per);
-  const rest = unknown.slice(1);
-  const digits = new Array(rest.length).fill(0);
-  for (let first = lo; first < hi; first++) {
-    candidate[unknown[0]] = WORDS[first];
-    digits.fill(0);
-    for (;;) {
-      for (let j = 0; j < rest.length; j++) candidate[rest[j]] = WORDS[digits[j]];
-      yield candidate.slice();
-      let p = rest.length - 1;
-      while (p >= 0) {
-        digits[p]++;
-        if (digits[p] < base) break;
-        digits[p] = 0;
-        p--;
-      }
-      if (p < 0) break;
-    }
+  return u;
+}
+
+/** Fills the unknown slots of `candidate` from the base-2048 digits of index g. */
+function fillCandidate(candidate, unknown, g) {
+  for (let j = unknown.length - 1; j >= 0; j--) {
+    candidate[unknown[j]] = WORDS[Number(g % BASE)];
+    g = g / BASE;
   }
 }
 
-// ---- worker ----
+// ---- worker: iterate a disjoint slice of the index space ----
 
 if (!isMainThread) {
-  const { template, targets, network, shardIndex, shardCount } = workerData;
+  const { template, targets, network, iStart, iEnd, A, C, total, random } = workerData;
+  const unknown = unknownPositions(template);
+  const candidate = template.slice();
   const targetSet = new Set(targets);
+  const end = BigInt(iEnd);
+  const a = BigInt(A);
+  const c = BigInt(C);
+  const N = BigInt(total);
   let checked = 0;
   let valid = 0;
   let last = Date.now();
-  for (const cand of shardCandidates(template, shardIndex, shardCount)) {
+  for (let i = BigInt(iStart); i < end; i++) {
+    // random ? shuffled index via bijection : sequential index
+    fillCandidate(candidate, unknown, random ? (a * i + c) % N : i);
     checked++;
-    if (checksumValid(cand)) {
+    if (checksumValid(candidate)) {
       valid++;
-      const hit = scanMatch(cand, network, targetSet);
+      const hit = scanMatch(candidate, network, targetSet);
       if (hit) {
-        parentPort.postMessage({ type: 'found', candidate: cand, checked, valid, hit });
+        parentPort.postMessage({ type: 'found', candidate: candidate.slice(), checked, valid, hit });
         process.exit(0);
       }
     }
@@ -185,18 +172,25 @@ function fmtDuration(ms) {
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m ${s % 60}s`;
   const h = Math.floor(m / 60);
-  return `${h}h ${m % 60}m`;
+  if (h < 48) return `${h}h ${m % 60}m`;
+  return `${Math.floor(h / 24)}d ${h % 24}h`;
 }
 
-async function readInputs() {
-  if (process.argv[2] && process.argv[3]) {
-    return { wordsLine: process.argv[2], addressArg: process.argv[3] };
+/** Uniform random BigInt in [0, n) where n is a power of two. */
+function randBelow(n) {
+  const bits = (n - 1n).toString(2).length;
+  const bytes = Math.ceil(bits / 8);
+  return BigInt('0x' + crypto.randomBytes(bytes).toString('hex')) % n;
+}
+
+async function readInputs(argv) {
+  if (argv[0] && argv[1]) {
+    return { wordsLine: argv[0], addressArg: argv[1] };
   }
   const readline = await import('node:readline/promises');
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   console.log('\n  Offline wallet recovery (no internet) — bc1/tb1 addresses\n');
-  console.log('  Paste your words IN ORDER. Use ? for each missing/unknown word.');
-  console.log('  Example: excite high ? humor entire cabbage fantasy timber erosion smooth spell ?\n');
+  console.log('  Paste your words IN ORDER. Use ? for each missing/unknown word.\n');
   const wordsLine = await rl.question('  Words: ');
   const addressArg = await rl.question('  Address(es) — comma/space separated, or a file path: ');
   rl.close();
@@ -212,7 +206,10 @@ function parseAddresses(arg) {
 }
 
 async function main() {
-  const { wordsLine, addressArg } = await readInputs();
+  const args = process.argv.slice(2);
+  const random = args.includes('--random');
+  const positional = args.filter((a) => a !== '--random');
+  const { wordsLine, addressArg } = await readInputs(positional);
 
   const raw = wordsLine.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (![12, 15, 18, 21, 24].includes(raw.length)) {
@@ -226,8 +223,7 @@ async function main() {
     process.exit(1);
   }
 
-  // Build the target set from one or many native addresses.
-  const targetMap = new Map(); // hex -> original address
+  const targetMap = new Map();
   let network = null;
   for (const addr of parseAddresses(addressArg)) {
     const hex = decodeNativeHex(addr);
@@ -239,7 +235,7 @@ async function main() {
     if (!network) network = addr.startsWith('tb1') ? 'testnet' : 'mainnet';
   }
   if (targetMap.size === 0) {
-    console.error('\n  ✗ No valid bc1…/tb1… address given. This tool matches native-SegWit only.');
+    console.error('\n  ✗ No valid bc1…/tb1… address given.');
     process.exit(1);
   }
   const targets = [...targetMap.keys()];
@@ -249,12 +245,26 @@ async function main() {
     console.error('\n  ✗ Nothing to search — leave at least one word as ?.');
     process.exit(1);
   }
-  const total = 2048 ** unknownCount;
+
+  const total = BASE ** BigInt(unknownCount);
+  const totalNum = Number(total);
   const cores = Math.max(1, Math.min(os.cpus().length, 32));
+
+  // Random traversal: a bijection f(i) = (A·i + C) mod total over the index
+  // space. A is odd (coprime to the power-of-two total), so f is a permutation —
+  // every combination appears exactly once, in shuffled order, with no repeats,
+  // even when split across cores.
+  const A = random ? randBelow(total) | 1n : 1n;
+  const C = random ? randBelow(total) : 0n;
+
   console.log(
-    `\n  ${unknownCount} unknown word(s) · ${total.toLocaleString()} combinations · ` +
-      `${targetMap.size} address(es) · scanning ${SCAN_RECEIVE}+${SCAN_CHANGE} indices · ${cores} cores\n`,
+    `\n  ${unknownCount} unknown word(s) · ${totalNum.toLocaleString()} combinations · ` +
+      `${targetMap.size} address(es) · ${random ? 'RANDOM order' : 'sequential'} · ` +
+      `scan ${SCAN_RECEIVE}+${SCAN_CHANGE} · ${cores} cores\n`,
   );
+  if (random) {
+    console.log('  (random order does not change how long it takes — same expected time)\n');
+  }
 
   const checkedArr = new Array(cores).fill(0);
   const validArr = new Array(cores).fill(0);
@@ -263,16 +273,17 @@ async function main() {
   let done = 0;
   let finished = false;
   const self = fileURLToPath(import.meta.url);
+  const per = total / BigInt(cores);
 
   const render = () => {
     const checked = checkedArr.reduce((a, b) => a + b, 0);
     const valid = validArr.reduce((a, b) => a + b, 0);
     const elapsed = Date.now() - t0;
     const rate = elapsed > 0 ? checked / (elapsed / 1000) : 0;
-    const eta = rate > 0 ? ((total - checked) / rate) * 1000 : Infinity;
-    const pct = total > 0 ? Math.min(100, (checked / total) * 100).toFixed(2) : '0';
+    const eta = rate > 0 ? ((totalNum - checked) / rate) * 1000 : Infinity;
+    const pct = totalNum > 0 ? Math.min(100, (checked / totalNum) * 100).toFixed(2) : '0';
     process.stdout.write(
-      `\r  ${pct}%  ${checked.toLocaleString()}/${total.toLocaleString()}  ` +
+      `\r  ${pct}%  ${checked.toLocaleString()}/${totalNum.toLocaleString()}  ` +
         `${Math.round(rate).toLocaleString()}/s  valid ${valid.toLocaleString()}  ETA ${fmtDuration(eta)}   `,
     );
   };
@@ -283,19 +294,17 @@ async function main() {
     workers.forEach((w) => w.terminate());
     render();
     if (candidate) {
-      console.log('\n\n  ✓ FOUND YOUR WALLET ORDER:\n');
+      console.log('\n\n  ✓ FOUND YOUR WALLET:\n');
       candidate.forEach((w, i) => console.log(`     ${String(i + 1).padStart(2)}. ${w}`));
       console.log(`\n  Phrase: ${candidate.join(' ')}`);
       if (hit) {
         const matched = targetMap.get(hit.hex);
-        const branch = hit.branch === 0 ? 'receive' : 'change';
-        console.log(`  Matched: ${matched}  (${branch} index ${hit.index})`);
+        console.log(`  Matched: ${matched}  (${hit.branch === 0 ? 'receive' : 'change'} index ${hit.index})`);
       }
       console.log('\n  Write these words on paper in this exact order, then import them.\n');
     } else {
       console.log('\n\n  ✗ No combination produced any of those addresses.');
-      console.log('  Check the words/addresses, raise scan depth (RECOVER_SCAN_RECEIVE), or you');
-      console.log('  may be missing too many words.\n');
+      console.log('  Check the words/addresses, or you may be missing too many words.\n');
     }
     process.exit(0);
   };
@@ -303,8 +312,20 @@ async function main() {
   const timer = setInterval(render, 300);
 
   for (let i = 0; i < cores; i++) {
+    const iStart = BigInt(i) * per;
+    const iEnd = i === cores - 1 ? total : BigInt(i + 1) * per;
     const worker = new Worker(self, {
-      workerData: { template, targets, network, shardIndex: i, shardCount: cores },
+      workerData: {
+        template,
+        targets,
+        network,
+        iStart: iStart.toString(),
+        iEnd: iEnd.toString(),
+        A: A.toString(),
+        C: C.toString(),
+        total: total.toString(),
+        random,
+      },
     });
     worker.on('message', (m) => {
       checkedArr[i] = m.checked;

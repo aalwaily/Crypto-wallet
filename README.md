@@ -27,7 +27,12 @@ For each guess it derives the seed once, then scans a range of receive/change
 address indices (default 25 + 5, override with `RECOVER_SCAN_RECEIVE` /
 `RECOVER_SCAN_CHANGE`) and checks them against your whole address set — so it
 finds the wallet no matter which of your addresses is index 0. Run `npm run
-recover` with no arguments for interactive prompts. For maximum safety, run it on
+recover` with no arguments for interactive prompts.
+
+Add `--random` to try combinations in a shuffled (non-repeating, full-coverage)
+order instead of sequential — via an affine bijection over the index space. Note
+this does **not** make recovery faster (the wallet's position is random, so
+expected time is identical); it only changes which combinations are tried first. For maximum safety, run it on
 an offline machine — it never makes a network request. It reconstructs *your own*
 wallet; it cannot guess an unknown seed (mathematically impossible).
 
