@@ -6,6 +6,20 @@ A non-custodial Chrome extension wallet for **Bitcoin (testnet)** and **USDT-TRC
 >
 > **This wallet has NOT been professionally audited.** It defaults to test networks. Mainnet can be enabled per-chain in Settings behind an explicit risk acknowledgement — mainnet transactions move real, irreversible funds. Treat this as a hot wallet: keep only small amounts, and use a hardware wallet for anything you care about. The `MAINNET_ENABLED` flag in `src/config.ts` can be set to `false` to remove mainnet options entirely.
 
+## Offline terminal recovery (no internet, no browser)
+
+Recover a wallet from the command line — 100% local, all CPU cores, zero network:
+
+```bash
+npm run recover -- "excite high ? humor entire cabbage fantasy timber erosion smooth spell ?" "bc1q…youraddress"
+```
+
+Paste your words in order and use `?` for each missing/unknown word; pass a known
+native-SegWit (`bc1…`/`tb1…`) address of yours. Or run `npm run recover` with no
+arguments for interactive prompts. For maximum safety, run it on an offline
+machine — it never makes a network request. It reconstructs *your own* wallet;
+it cannot guess an unknown seed (mathematically impossible).
+
 ## Features
 
 - **Wallet recovery** (offline): two modes against a known address of yours — **Missing words** (fill blank positions from the 2048-word BIP39 list, parallelised across all CPU cores via Web Workers; 1–2 missing words = seconds/minutes) and **Wrong order** (search the order of words you have). Runs entirely on-device; words never leave the computer. **Cannot** guess an unknown seed — only reconstructs your own words (missing 1–2 is feasible; missing many is mathematically impossible by design).

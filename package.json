@@ -9,7 +9,8 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "recover": "node scripts/recover-cli.mjs"
   },
   "dependencies": {
     "@bitcoinerlab/secp256k1": "^1.1.1",
