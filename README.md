@@ -8,7 +8,7 @@ A non-custodial Chrome extension wallet for **Bitcoin (testnet)** and **USDT-TRC
 
 ## Features
 
-- **Wallet recovery** (offline): two modes against a known address of yours — **Missing words** (fill blank positions from the 2048-word BIP39 list; 1–2 missing words = seconds/minutes) and **Wrong order** (search the order of words you have). Runs entirely on-device; words never leave the computer. **Cannot** guess an unknown seed — only reconstructs your own words (missing 1–2 is feasible; missing many is mathematically impossible by design).
+- **Wallet recovery** (offline): two modes against a known address of yours — **Missing words** (fill blank positions from the 2048-word BIP39 list, parallelised across all CPU cores via Web Workers; 1–2 missing words = seconds/minutes) and **Wrong order** (search the order of words you have). Runs entirely on-device; words never leave the computer. **Cannot** guess an unknown seed — only reconstructs your own words (missing 1–2 is feasible; missing many is mathematically impossible by design).
 - **Multiple wallets**: add any number of wallets by their seed phrase, name them, and switch between them from the dashboard — one app password unlocks them all
 - **All Bitcoin address types**: imports from Trust, legacy wallets, or any BIP39 wallet work — legacy (`1…`, BIP44), nested SegWit (`3…`, BIP49), and native SegWit (`bc1…`, BIP84) are all derived; the funded type is auto-detected on import, and sending works from any type
 - 12-word BIP39 seed phrase, generated locally — never leaves your device

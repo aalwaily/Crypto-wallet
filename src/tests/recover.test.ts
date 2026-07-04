@@ -8,6 +8,7 @@ import {
   findMissingSync,
   findOrderSync,
   missingWordCandidates,
+  missingWordCandidatesShard,
   missingWordTotal,
   normalizeWords,
   permutations,
@@ -93,6 +94,22 @@ describe('missing-word recovery', () => {
   it('computes the combination count', () => {
     expect(missingWordTotal(1)).toBe(2048);
     expect(missingWordTotal(2)).toBe(2048 * 2048);
+  });
+
+  it('shards cover the full space with no overlap', () => {
+    const list = ['a', 'b', 'c', 'd', 'e'];
+    const template = ['x', null, null]; // 2 unknowns → 5^2 = 25 candidates
+    const full = [...missingWordCandidates(template, list)].map((c) => c.join(','));
+    const shardCount = 3;
+    const sharded: string[] = [];
+    for (let i = 0; i < shardCount; i++) {
+      for (const c of missingWordCandidatesShard(template, list, i, shardCount)) {
+        sharded.push(c.join(','));
+      }
+    }
+    expect(sharded).toHaveLength(full.length);
+    expect(new Set(sharded).size).toBe(full.length); // no duplicates
+    expect(new Set(sharded)).toEqual(new Set(full)); // same coverage
   });
 
   it('recovers a single missing word from the full 2048-word list', () => {

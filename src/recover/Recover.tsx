@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { wordlists } from 'bip39';
 import {
   Alert,
@@ -69,6 +69,10 @@ export function Recover() {
   const [found, setFound] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const stopRef = useRef(false);
+  const workersRef = useRef<Worker[]>([]);
+
+  // Terminate any running workers when the page unmounts.
+  useEffect(() => () => workersRef.current.forEach((w) => w.terminate()), []);
 
   // Save-to-wallet form (after a successful find).
   const [hasVault, setHasVault] = useState(false);
@@ -128,31 +132,16 @@ export function Recover() {
     setLocked(next);
   };
 
-  const run = async () => {
-    setPhase('running');
-    setError(null);
-    setFound(null);
-    setProgress(null);
-    setSaved(false);
-    stopRef.current = false;
+  const terminateWorkers = () => {
+    workersRef.current.forEach((w) => w.terminate());
+    workersRef.current = [];
+  };
 
+  /** Single-threaded main-thread search (order mode, and fallback if no Workers). */
+  const runSingle = async (gen: Generator<string[]>, total: number) => {
     const network = networkOf(target);
     const wanted = target.trim();
     const type = addressTypeOf(target);
-
-    let gen: Generator<string[]>;
-    let total: number;
-    if (mode === 'missing') {
-      gen = missingWordCandidates(missingTemplate, ENGLISH);
-      total = missingTotal;
-    } else {
-      const plan = buildPlan(words, effectiveLocked);
-      total = plan.total;
-      gen = (function* () {
-        for (const perm of permutations(plan.freeWords)) yield assemble(plan, perm);
-      })();
-    }
-
     let checked = 0;
     let valid = 0;
     const t0 = Date.now();
@@ -189,6 +178,101 @@ export function Recover() {
       setError(formatError(e));
       setPhase('error');
     }
+  };
+
+  /** Parallel missing-word search across one worker per CPU core. */
+  const runParallel = () => {
+    const network = networkOf(target);
+    const wanted = target.trim();
+    const type = addressTypeOf(target);
+    const total = missingTotal;
+    const cores = Math.max(1, Math.min(navigator.hardwareConcurrency || 4, 16));
+    const checkedArr = new Array(cores).fill(0);
+    const validArr = new Array(cores).fill(0);
+    let done = 0;
+    let finished = false;
+    const t0 = Date.now();
+
+    const update = () => {
+      const checked = checkedArr.reduce((a, b) => a + b, 0);
+      const valid = validArr.reduce((a, b) => a + b, 0);
+      setProgress({ checked, valid, total, elapsedMs: Date.now() - t0 });
+    };
+    const finish = async (candidate: string[] | null) => {
+      if (finished) return;
+      finished = true;
+      terminateWorkers();
+      update();
+      if (candidate) {
+        setFound(candidate);
+        setHasVault(await vaultExists());
+        setPhase('found');
+      } else {
+        setPhase('notfound');
+      }
+    };
+
+    for (let i = 0; i < cores; i++) {
+      const worker = new Worker(new URL('./recoveryWorker.ts', import.meta.url), { type: 'module' });
+      worker.onmessage = (e: MessageEvent) => {
+        const m = e.data as { type: string; checked: number; valid: number; candidate?: string[] };
+        checkedArr[i] = m.checked;
+        validArr[i] = m.valid;
+        if (m.type === 'found') {
+          void finish(m.candidate ?? null);
+        } else if (m.type === 'done') {
+          done++;
+          update();
+          if (done === cores) void finish(null);
+        } else {
+          update();
+        }
+      };
+      worker.onerror = () => {
+        done++;
+        if (done === cores) void finish(null);
+      };
+      worker.postMessage({
+        template: missingTemplate,
+        target: wanted,
+        network,
+        addressType: type,
+        shardIndex: i,
+        shardCount: cores,
+      });
+      workersRef.current.push(worker);
+    }
+  };
+
+  const run = async () => {
+    setPhase('running');
+    setError(null);
+    setFound(null);
+    setProgress(null);
+    setSaved(false);
+    stopRef.current = false;
+    terminateWorkers();
+
+    if (mode === 'missing') {
+      if (typeof Worker !== 'undefined') {
+        runParallel();
+      } else {
+        await runSingle(missingWordCandidates(missingTemplate, ENGLISH), missingTotal);
+      }
+      return;
+    }
+    // Order mode runs on the main thread (kept small by locking positions).
+    const plan = buildPlan(words, effectiveLocked);
+    const gen = (function* () {
+      for (const perm of permutations(plan.freeWords)) yield assemble(plan, perm);
+    })();
+    await runSingle(gen, plan.total);
+  };
+
+  const stop = () => {
+    stopRef.current = true;
+    terminateWorkers();
+    setPhase('stopped');
   };
 
   const onSave = async () => {
@@ -463,7 +547,7 @@ export function Recover() {
 
       <div className="row" style={{ gap: 10 }}>
         {phase === 'running' ? (
-          <Button variant="secondary" onClick={() => (stopRef.current = true)}>
+          <Button variant="secondary" onClick={stop}>
             Stop
           </Button>
         ) : (

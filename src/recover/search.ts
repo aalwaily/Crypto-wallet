@@ -164,6 +164,56 @@ export function missingWordTotal(unknownCount: number, wordlistSize = 2048): num
   return wordlistSize ** unknownCount;
 }
 
+/**
+ * Like missingWordCandidates but only the slice of the space where the FIRST
+ * unknown slot falls in this shard's range. Used to split the search across
+ * Web Workers: shard i of `shardCount` covers a disjoint part, and the union of
+ * all shards is the full space.
+ */
+export function* missingWordCandidatesShard(
+  template: (string | null)[],
+  wordlist: readonly string[],
+  shardIndex: number,
+  shardCount: number,
+): Generator<string[]> {
+  const unknown: number[] = [];
+  template.forEach((w, i) => {
+    if (!w) unknown.push(i);
+  });
+  const k = unknown.length;
+  const base = wordlist.length;
+  const candidate = template.slice();
+
+  if (k === 0) {
+    if (shardIndex === 0) yield candidate.slice() as string[];
+    return;
+  }
+
+  // Partition the first unknown slot's [0, base) range across shards.
+  const per = Math.ceil(base / shardCount);
+  const lo = shardIndex * per;
+  const hi = Math.min(base, lo + per);
+  const rest = unknown.slice(1);
+  const digits = new Array(rest.length).fill(0);
+
+  for (let first = lo; first < hi; first++) {
+    candidate[unknown[0]!] = wordlist[first]!;
+    digits.fill(0);
+    for (;;) {
+      for (let j = 0; j < rest.length; j++) candidate[rest[j]!] = wordlist[digits[j]!]!;
+      yield candidate.slice() as string[];
+      let p = rest.length - 1;
+      while (p >= 0) {
+        digits[p]!++;
+        if (digits[p]! < base) break;
+        digits[p] = 0;
+        p--;
+      }
+      if (p < 0) break;
+    }
+  }
+}
+
 export interface FindResult {
   found: string[] | null;
   checked: number;
