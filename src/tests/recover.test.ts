@@ -1,13 +1,19 @@
 import { describe, expect, it } from 'vitest';
+import { wordlists } from 'bip39';
 import {
   addressTypeOf,
   buildPlan,
   deriveAddress,
   factorial,
+  findMissingSync,
   findOrderSync,
+  missingWordCandidates,
+  missingWordTotal,
   normalizeWords,
   permutations,
 } from '../recover/search';
+
+const ENGLISH = wordlists.english as string[];
 
 // Pinned vector: a valid 12-word mnemonic (distinct words) and its native address.
 const MNEMONIC = 'excite high kitchen humor entire cabbage fantasy timber erosion smooth spell debris';
@@ -63,5 +69,43 @@ describe('recovery search', () => {
 
   it('normalizes whitespace and case', () => {
     expect(normalizeWords('  Excite   HIGH\tkitchen ')).toEqual(['excite', 'high', 'kitchen']);
+  });
+});
+
+describe('missing-word recovery', () => {
+  it('enumerates combinations as an odometer over the wordlist', () => {
+    const list = ['a', 'b', 'c', 'd'];
+    // template with 2 unknown slots → 4^2 = 16 candidates
+    const template = ['x', null, 'y', null];
+    const all = [...missingWordCandidates(template, list)];
+    expect(all).toHaveLength(16);
+    expect(all[0]).toEqual(['x', 'a', 'y', 'a']);
+    expect(all[5]).toEqual(['x', 'b', 'y', 'b']);
+    expect(all[15]).toEqual(['x', 'd', 'y', 'd']);
+    // fixed positions never change
+    expect(all.every((c) => c[0] === 'x' && c[2] === 'y')).toBe(true);
+  });
+
+  it('yields exactly one candidate when nothing is missing', () => {
+    expect([...missingWordCandidates(['a', 'b'], ['a', 'b', 'c'])]).toEqual([['a', 'b']]);
+  });
+
+  it('computes the combination count', () => {
+    expect(missingWordTotal(1)).toBe(2048);
+    expect(missingWordTotal(2)).toBe(2048 * 2048);
+  });
+
+  it('recovers a single missing word from the full 2048-word list', () => {
+    // Blank out position 4 ("entire") and let the search find it.
+    const template = WORDS.map((w, i) => (i === 4 ? null : w));
+    const res = findMissingSync(template, ENGLISH, ADDRESS, 'mainnet');
+    expect(res.found).toEqual(WORDS);
+  });
+
+  it('returns not-found when the missing word cannot produce the address', () => {
+    const template = WORDS.map((w, i) => (i === 4 ? null : w));
+    const res = findMissingSync(template, ENGLISH, 'bc1qdefinitelynotyouraddressxxxxxxxxxxxxx', 'mainnet');
+    expect(res.found).toBeNull();
+    expect(res.checked).toBe(2048);
   });
 });

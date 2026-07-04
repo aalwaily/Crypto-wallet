@@ -128,10 +128,73 @@ export function assemble(plan: RecoveryPlan, perm: string[]): string[] {
   return candidate as string[];
 }
 
+/**
+ * Yields full candidates by filling the null slots of `template` with every
+ * combination of words from `wordlist` (an odometer of base wordlist.length).
+ * Used to recover missing/unknown words at known positions.
+ */
+export function* missingWordCandidates(
+  template: (string | null)[],
+  wordlist: readonly string[],
+): Generator<string[]> {
+  const unknown: number[] = [];
+  template.forEach((w, i) => {
+    if (!w) unknown.push(i);
+  });
+  const k = unknown.length;
+  const base = wordlist.length;
+  const digits = new Array(k).fill(0);
+  const candidate = template.slice();
+  for (;;) {
+    for (let j = 0; j < k; j++) candidate[unknown[j]!] = wordlist[digits[j]!]!;
+    yield candidate.slice() as string[];
+    let p = k - 1;
+    while (p >= 0) {
+      digits[p]!++;
+      if (digits[p]! < base) break;
+      digits[p] = 0;
+      p--;
+    }
+    if (p < 0) break;
+  }
+}
+
+/** Number of combinations for `unknownCount` missing words over a 2048-word list. */
+export function missingWordTotal(unknownCount: number, wordlistSize = 2048): number {
+  return wordlistSize ** unknownCount;
+}
+
 export interface FindResult {
   found: string[] | null;
   checked: number;
   checksumValid: number;
+}
+
+/**
+ * Synchronous missing-word search: fills the null slots of `template` from the
+ * wordlist and stops at the first ordering whose address equals `target`.
+ */
+export function findMissingSync(
+  template: (string | null)[],
+  wordlist: readonly string[],
+  target: string,
+  network: BtcNetworkId,
+  maxChecks = Infinity,
+): FindResult {
+  const addressType = addressTypeOf(target);
+  const wanted = target.trim();
+  let checked = 0;
+  let checksumValid = 0;
+  for (const candidate of missingWordCandidates(template, wordlist)) {
+    const address = deriveAddress(candidate, network, addressType);
+    checked++;
+    if (address) {
+      checksumValid++;
+      if (address === wanted) return { found: candidate, checked, checksumValid };
+    }
+    if (checked >= maxChecks) break;
+  }
+  return { found: null, checked, checksumValid };
 }
 
 /**
