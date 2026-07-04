@@ -10,6 +10,7 @@ import * as ecc from '@bitcoinerlab/secp256k1';
 import * as bitcoin from 'bitcoinjs-lib';
 import { getBitcoinJsNetwork } from '../wallet/networks';
 import { btcDerivationPath, type BtcAddressType } from '../wallet/bitcoin';
+import { checksumValid, decodeNativeProgram, nativeMatches } from './fastDerive';
 import type { BtcNetworkId } from '../config';
 
 const bip32 = BIP32Factory(ecc);
@@ -221,6 +222,29 @@ export interface FindResult {
 }
 
 /**
+ * Returns a per-candidate matcher: null = not a valid mnemonic, true = matches
+ * the target address, false = valid but not a match. Uses the fast native path
+ * (checksum + hash160 compare) when the target is a bc1/tb1 address.
+ */
+function makeMatcher(
+  target: string,
+  network: BtcNetworkId,
+  addressType: BtcAddressType,
+): (words: string[]) => boolean | null {
+  const wanted = target.trim();
+  if (addressType === 'native') {
+    const program = decodeNativeProgram(wanted);
+    if (program) {
+      return (words) => (checksumValid(words) ? nativeMatches(words, network, program) : null);
+    }
+  }
+  return (words) => {
+    const address = deriveAddress(words, network, addressType);
+    return address ? address === wanted : null;
+  };
+}
+
+/**
  * Synchronous missing-word search: fills the null slots of `template` from the
  * wordlist and stops at the first ordering whose address equals `target`.
  */
@@ -231,16 +255,15 @@ export function findMissingSync(
   network: BtcNetworkId,
   maxChecks = Infinity,
 ): FindResult {
-  const addressType = addressTypeOf(target);
-  const wanted = target.trim();
+  const matcher = makeMatcher(target, network, addressTypeOf(target));
   let checked = 0;
   let checksumValid = 0;
   for (const candidate of missingWordCandidates(template, wordlist)) {
-    const address = deriveAddress(candidate, network, addressType);
+    const result = matcher(candidate);
     checked++;
-    if (address) {
+    if (result !== null) {
       checksumValid++;
-      if (address === wanted) return { found: candidate, checked, checksumValid };
+      if (result) return { found: candidate, checked, checksumValid };
     }
     if (checked >= maxChecks) break;
   }
@@ -259,17 +282,16 @@ export function findOrderSync(
   maxChecks = Infinity,
 ): FindResult {
   const plan = buildPlan(words, locked);
-  const addressType = addressTypeOf(target);
-  const wanted = target.trim();
+  const matcher = makeMatcher(target, network, addressTypeOf(target));
   let checked = 0;
   let checksumValid = 0;
   for (const perm of permutations(plan.freeWords)) {
     const candidate = assemble(plan, perm);
-    const address = deriveAddress(candidate, network, addressType);
+    const result = matcher(candidate);
     checked++;
-    if (address) {
+    if (result !== null) {
       checksumValid++;
-      if (address === wanted) return { found: candidate, checked, checksumValid };
+      if (result) return { found: candidate, checked, checksumValid };
     }
     if (checked >= maxChecks) break;
   }

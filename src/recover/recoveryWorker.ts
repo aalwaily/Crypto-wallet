@@ -11,6 +11,7 @@ if (!(globalThis as unknown as { Buffer?: unknown }).Buffer) {
 }
 import { wordlists } from 'bip39';
 import { deriveAddress, missingWordCandidatesShard } from './search';
+import { checksumValid, decodeNativeProgram, nativeMatches } from './fastDerive';
 import type { BtcNetworkId } from '../config';
 import type { BtcAddressType } from '../wallet/bitcoin';
 
@@ -32,17 +33,11 @@ self.onmessage = (e: MessageEvent<StartMsg>) => {
   let valid = 0;
   let last = Date.now();
 
-  for (const candidate of missingWordCandidatesShard(template, ENGLISH, shardIndex, shardCount)) {
-    const address = deriveAddress(candidate, network, addressType);
-    checked++;
-    if (address) {
-      valid++;
-      if (address === wanted) {
-        self.postMessage({ type: 'found', candidate, checked, valid });
-        return;
-      }
-    }
-    // Report progress a few times a second without flooding the main thread.
+  // Fast path for native SegWit (bc1/tb1): cheap checksum reject + byte compare.
+  const targetProgram = addressType === 'native' ? decodeNativeProgram(wanted) : null;
+  const useFast = addressType === 'native' && targetProgram !== null;
+
+  const report = (): boolean => {
     if ((checked & 4095) === 0) {
       const now = Date.now();
       if (now - last > 200) {
@@ -50,6 +45,30 @@ self.onmessage = (e: MessageEvent<StartMsg>) => {
         last = now;
       }
     }
+    return false;
+  };
+
+  for (const candidate of missingWordCandidatesShard(template, ENGLISH, shardIndex, shardCount)) {
+    checked++;
+    if (useFast) {
+      if (checksumValid(candidate)) {
+        valid++;
+        if (nativeMatches(candidate, network, targetProgram!)) {
+          self.postMessage({ type: 'found', candidate, checked, valid });
+          return;
+        }
+      }
+    } else {
+      const address = deriveAddress(candidate, network, addressType);
+      if (address) {
+        valid++;
+        if (address === wanted) {
+          self.postMessage({ type: 'found', candidate, checked, valid });
+          return;
+        }
+      }
+    }
+    report();
   }
   self.postMessage({ type: 'done', checked, valid });
 };

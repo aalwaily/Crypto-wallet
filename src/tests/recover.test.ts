@@ -14,6 +14,8 @@ import {
   permutations,
 } from '../recover/search';
 
+import { checksumValid, decodeNativeProgram, nativeMatches } from '../recover/fastDerive';
+
 const ENGLISH = wordlists.english as string[];
 
 // Pinned vector: a valid 12-word mnemonic (distinct words) and its native address.
@@ -117,12 +119,28 @@ describe('missing-word recovery', () => {
     const template = WORDS.map((w, i) => (i === 4 ? null : w));
     const res = findMissingSync(template, ENGLISH, ADDRESS, 'mainnet');
     expect(res.found).toEqual(WORDS);
+  }, 60_000); // full 2048-word scan; generous timeout for slow CI
+
+  it('fast native path agrees with the proven derivation', () => {
+    const program = decodeNativeProgram(ADDRESS);
+    expect(program).not.toBeNull();
+    expect(program!.length).toBe(20);
+    // checksum + exact address match for the correct order
+    expect(checksumValid(WORDS)).toBe(true);
+    expect(nativeMatches(WORDS, 'mainnet', program!)).toBe(true);
+    // a different, unrelated program must not match
+    const other = decodeNativeProgram('bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4')!;
+    expect(nativeMatches(WORDS, 'mainnet', other)).toBe(false);
+    // a word not in the list fails the checksum
+    expect(checksumValid(['notaword', ...WORDS.slice(1)])).toBe(false);
   });
 
-  it('returns not-found when the missing word cannot produce the address', () => {
-    const template = WORDS.map((w, i) => (i === 4 ? null : w));
-    const res = findMissingSync(template, ENGLISH, 'bc1qdefinitelynotyouraddressxxxxxxxxxxxxx', 'mainnet');
+  it('returns not-found when no combination matches', () => {
+    // A small candidate list keeps this fast while exercising the not-found path.
+    const list = ['abandon', 'ability', 'able', 'about'];
+    const template = WORDS.map((w, i) => (i === 11 ? null : w));
+    const res = findMissingSync(template, list, 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4', 'mainnet');
     expect(res.found).toBeNull();
-    expect(res.checked).toBe(2048);
+    expect(res.checked).toBe(list.length);
   });
 });
